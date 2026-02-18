@@ -145,6 +145,9 @@ newBtn.addEventListener('click', async () => {
 });
 
 imageBtn.addEventListener('click', async () => {
+  if (currentNote && currentNote.content.trim() === '') {
+    await window.api.deleteNote(currentNote.id);
+  }
   const note = await window.api.createNoteFromImage();
   if (note) openNote(note);
 });
@@ -184,7 +187,11 @@ document.addEventListener('paste', async (e) => {
         currentNote.content = dataUrl;
         imageDisplay.innerHTML = `<img src="${dataUrl}" alt="Image" />`;
       } else {
-        autoSave();
+        if (currentNote && currentNote.content.trim() === '') {
+          await window.api.deleteNote(currentNote.id);
+        } else {
+          autoSave();
+        }
         const note = await window.api.createNote(dataUrl);
         openNote(note);
       }
