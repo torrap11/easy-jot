@@ -59,6 +59,15 @@ app.whenReady().then(() => {
   ipcMain.handle('update-note', (_e, id, content) => db.updateNote(id, content));
   ipcMain.handle('delete-note', (_e, id) => db.deleteNote(id));
   ipcMain.handle('restore-note', (_e, note) => db.restoreNote(note));
+  ipcMain.handle('resize-window', (_e, panelOpen) => {
+    if (!win) return;
+    const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize;
+    if (panelOpen) {
+      win.setBounds({ x: screenWidth - 620, width: 600 }, true);
+    } else {
+      win.setBounds({ x: screenWidth - 340, width: 320 }, true);
+    }
+  });
   ipcMain.handle('create-note-from-image', async () => {
     const result = await dialog.showOpenDialog(BrowserWindow.getFocusedWindow() || win, {
       properties: ['openFile'],

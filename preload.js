@@ -7,4 +7,5 @@ contextBridge.exposeInMainWorld('api', {
   updateNote: (id, content) => ipcRenderer.invoke('update-note', id, content),
   deleteNote: (id) => ipcRenderer.invoke('delete-note', id),
   restoreNote: (note) => ipcRenderer.invoke('restore-note', note),
+  resizeWindow: (panelOpen) => ipcRenderer.invoke('resize-window', panelOpen),
 });

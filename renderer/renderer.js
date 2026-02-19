@@ -6,6 +6,10 @@ const newBtn = document.getElementById('new-btn');
 const imageBtn = document.getElementById('image-btn');
 const backBtn = document.getElementById('back-btn');
 const deleteBtn = document.getElementById('delete-btn');
+const agentPanel = document.getElementById('agent-panel');
+const agentMessages = document.getElementById('agent-messages');
+const agentInput = document.getElementById('agent-input');
+const agentSendBtn = document.getElementById('agent-send-btn');
 
 function isImageNote(note) {
   return note && note.content && note.content.startsWith('data:image/');
@@ -16,6 +20,7 @@ let saveTimeout = null;
 let notes = [];
 let selectedIndex = 0;
 let deletedNotesStack = [];
+let agentPanelOpen = false;
 
 async function loadNotes(selectNoteId = null) {
   notes = await window.api.getNotes();
@@ -265,6 +270,40 @@ document.addEventListener('keydown', async (e) => {
   } else if (e.key === 'e') {
     e.preventDefault();
     if (currentNote) showList();
+  } else if (e.key === 'j') {
+    e.preventDefault();
+    toggleAgentPanel();
+  }
+});
+
+function toggleAgentPanel() {
+  agentPanelOpen = !agentPanelOpen;
+  agentPanel.classList.toggle('hidden', !agentPanelOpen);
+  window.api.resizeWindow(agentPanelOpen);
+  if (agentPanelOpen) agentInput.focus();
+}
+
+function sendAgentMessage() {
+  const text = agentInput.value.trim();
+  if (!text) return;
+
+  const emptyState = agentMessages.querySelector('.agent-empty-state');
+  if (emptyState) emptyState.remove();
+
+  const msg = document.createElement('div');
+  msg.className = 'agent-message user';
+  msg.textContent = text;
+  agentMessages.appendChild(msg);
+  agentMessages.scrollTop = agentMessages.scrollHeight;
+  agentInput.value = '';
+}
+
+agentSendBtn.addEventListener('click', sendAgentMessage);
+
+agentInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    sendAgentMessage();
   }
 });
 

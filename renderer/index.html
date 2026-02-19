@@ -7,22 +7,40 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="titlebar">
-    <span id="title">Jot</span>
-    <div id="titlebar-actions">
-      <button id="image-btn" title="Add image">📷</button>
-      <button id="new-btn" title="New note">+</button>
+  <!-- Agent panel (left side, hidden by default) -->
+  <div id="agent-panel" class="hidden">
+    <div id="agent-header">Jot Agent</div>
+    <div id="agent-messages">
+      <div class="agent-empty-state">
+        Type a command to act on your jots.<br>
+        <span class="agent-example">Example: Find all jots about X and compile into a new jot.</span>
+      </div>
+    </div>
+    <div id="agent-input-row">
+      <input id="agent-input" type="text" placeholder="Ask Jot Agent…" />
+      <button id="agent-send-btn">Send</button>
     </div>
   </div>
 
-  <div id="note-list"></div>
+  <!-- Main pane (right side, always visible) -->
+  <div id="main-pane">
+    <div id="titlebar">
+      <span id="title">Jot</span>
+      <div id="titlebar-actions">
+        <button id="image-btn" title="Add image">📷</button>
+        <button id="new-btn" title="New note">+</button>
+      </div>
+    </div>
 
-  <div id="editor" class="hidden">
-    <textarea id="content" placeholder="Write something..."></textarea>
-    <div id="image-display" class="hidden"></div>
-    <div id="editor-actions">
-      <button id="back-btn">Back</button>
-      <button id="delete-btn">Delete</button>
+    <div id="note-list"></div>
+
+    <div id="editor" class="hidden">
+      <textarea id="content" placeholder="Write something..."></textarea>
+      <div id="image-display" class="hidden"></div>
+      <div id="editor-actions">
+        <button id="back-btn">Back</button>
+        <button id="delete-btn">Delete</button>
+      </div>
     </div>
   </div>
 

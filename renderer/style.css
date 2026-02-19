@@ -10,10 +10,19 @@ body {
   color: #422006;
   height: 100vh;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   overflow: hidden;
   border-radius: 8px;
   border: 1px solid #e5d89c;
+}
+
+#main-pane {
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  flex-shrink: 0;
+  height: 100vh;
+  overflow: hidden;
 }
 
 #titlebar {
@@ -203,4 +212,107 @@ body {
   background: #fca5a5;
   border-color: #ef4444;
   color: #991b1b;
+}
+
+/* ── Jot Agent panel ── */
+
+#agent-panel {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  border-right: 1px solid #e5d89c;
+  background: #fef9c3;
+}
+
+#agent-panel.hidden {
+  display: none;
+}
+
+#agent-header {
+  padding: 8px 12px;
+  background: #fde68a;
+  border-bottom: 1px solid #e5d89c;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+
+#agent-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-empty-state {
+  color: #a16207;
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.5;
+  padding: 8px 4px;
+}
+
+.agent-example {
+  color: #78350f;
+}
+
+.agent-message {
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 6px 8px;
+  border-radius: 6px;
+  max-width: 100%;
+  word-wrap: break-word;
+}
+
+.agent-message.user {
+  background: #fde68a;
+  color: #422006;
+  align-self: flex-end;
+  border: 1px solid #e5d89c;
+}
+
+#agent-input-row {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-top: 1px solid #e5d89c;
+  flex-shrink: 0;
+}
+
+#agent-input {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  border: 1px solid #d4a017;
+  border-radius: 4px;
+  background: #fefce8;
+  color: #422006;
+  outline: none;
+}
+
+#agent-input::placeholder {
+  color: #a16207;
+}
+
+#agent-send-btn {
+  background: none;
+  border: 1px solid #92400e;
+  color: #92400e;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+#agent-send-btn:hover {
+  background: #fbbf24;
 }
