@@ -1,0 +1,56 @@
+{
+  "name": "easy-jot",
+  "version": "2.0.0",
+  "description": "Contextual Memory OS — local-first memory capture and semantic search",
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "build:electron": "node scripts/build-electron.mjs",
+    "build:renderer": "vite build",
+    "build": "npm run build:electron && npm run build:renderer",
+    "dev": "node scripts/build-electron.mjs && concurrently -k \"vite\" \"node scripts/build-electron.mjs --watch\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "start": "cross-env NODE_ENV=production electron .",
+    "pack": "npm run build && electron-builder --dir"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.6.2"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.4.0",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^40.4.1",
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.25.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.0",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.easyjot.memory",
+    "productName": "Easy Jot",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist-electron/**/*",
+      "dist/renderer/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": ["dmg", "zip"]
+    }
+  }
+}

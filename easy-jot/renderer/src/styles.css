@@ -1,0 +1,148 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  font-family:
+    system-ui,
+    -apple-system,
+    Segoe UI,
+    Roboto,
+    sans-serif;
+  font-size: 14px;
+  background: #1a1a1c;
+  color: #e8e8ea;
+}
+
+.panel {
+  padding: 10px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.input,
+.query {
+  width: 100%;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #111;
+  color: #eee;
+  outline: none;
+}
+
+.input:focus,
+.query:focus {
+  border-color: #666;
+}
+
+.input {
+  resize: vertical;
+  min-height: 96px;
+  line-height: 1.4;
+}
+
+.results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  flex: 1;
+  border: 1px solid #2a2a2e;
+  border-radius: 6px;
+  background: #121214;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 52px 1fr 88px 48px;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #222;
+  align-items: start;
+  font-size: 13px;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.row.active {
+  background: #1e2a38;
+}
+
+.type {
+  text-transform: uppercase;
+  font-size: 11px;
+  color: #9aa;
+  letter-spacing: 0.04em;
+}
+
+.snippet {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #ddd;
+}
+
+.score {
+  text-align: right;
+  color: #7a8;
+  font-variant-numeric: tabular-nums;
+}
+
+.hint {
+  font-size: 11px;
+  color: #777;
+}
+
+.error {
+  color: #f88;
+  font-size: 12px;
+}
+
+.when {
+  font-size: 11px;
+  color: #889;
+  text-align: right;
+  white-space: nowrap;
+  align-self: center;
+}
+
+.hl {
+  background: rgba(255, 220, 120, 0.22);
+  color: #fff;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.overlay-wrap {
+  min-height: 100vh;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.overlay-card {
+  background: rgba(20, 22, 28, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+.overlay-text {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #eee;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

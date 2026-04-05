@@ -1,0 +1,14 @@
+node_modules
+dist-electron
+dist
+release
+
+# SQLite database
+*.db
+*.db-shm
+*.db-wal
+
+# Secrets (keep .env.example committed as a template)
+.env
+.env.*
+!.env.example
