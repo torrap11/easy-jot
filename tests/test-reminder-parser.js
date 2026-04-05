@@ -93,6 +93,16 @@ test('parses "in 2 hours take medication"', () => {
   assert.ok(ms <= before + 121 * 60_000);
 });
 
+test('parses "remind me in 2 mins to stretch" (mins shorthand)', () => {
+  const before = Date.now();
+  const r = parseReminderNL('remind me in 2 mins to stretch');
+  const after = Date.now();
+  assertParsed(r, { scheduleType: 'once', contentIncludes: 'stretch' });
+  const ms = new Date(r.scheduledTime).getTime();
+  assert.ok(ms >= before + 90_000, 'should be ~2m in the future');
+  assert.ok(ms <= after + 150_000, 'should be ~2m in the future');
+});
+
 // ── Fallback ──────────────────────────────────────────────────────────────
 
 test('returns unparsed fallback when no time phrase', () => {

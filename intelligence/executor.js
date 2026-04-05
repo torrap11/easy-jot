@@ -3,6 +3,7 @@
 const VALID_TYPES = new Set([
   'search', 'create_note', 'create_folder', 'move_note_to_folder', 'organize_into_folders',
   'web_search',
+  'list_reminders', 'search_reminders', 'toggle_reminder', 'delete_reminder',
 ]);
 
 /**
@@ -86,6 +87,41 @@ function executeSingle(action, db) {
         created.push({ folder, movedNoteIds: noteIds });
       }
       return created;
+    }
+
+    // ── Scheduled reminder actions ───────────────────────────────────────
+
+    case 'list_reminders': {
+      const reminders = db.getAllScheduledReminders();
+      return { reminders, count: reminders.length };
+    }
+
+    case 'search_reminders': {
+      const q = ((payload && payload.query) || '').toLowerCase();
+      const all = db.getAllScheduledReminders();
+      const reminders = all.filter(r => r.content.toLowerCase().includes(q));
+      return { reminders, count: reminders.length };
+    }
+
+    case 'toggle_reminder': {
+      const id = payload && payload.id;
+      if (!id) throw new Error('toggle_reminder requires payload.id');
+      const all = db.getAllScheduledReminders();
+      const reminder = all.find(r => r.id === id);
+      if (!reminder) throw new Error(`Reminder #${id} not found`);
+      if (reminder.active) {
+        db.deactivateReminder(id);
+      } else {
+        db.activateReminder(id);
+      }
+      return { id, active: !reminder.active };
+    }
+
+    case 'delete_reminder': {
+      const id = payload && payload.id;
+      if (!id) throw new Error('delete_reminder requires payload.id');
+      db.deleteScheduledReminder(id);
+      return { deleted: id };
     }
   }
 }

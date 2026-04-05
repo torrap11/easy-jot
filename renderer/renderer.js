@@ -22,7 +22,7 @@ const folderOrganizeNewInput = document.getElementById('folder-organize-new-inpu
 const folderOrganizeDescInput = document.getElementById('folder-organize-desc-input');
 const folderOrganizeNewBtn = document.getElementById('folder-organize-new-btn');
 
-// ── Voice & Intent Memory elements ──
+// ── Voice (quick capture) elements ──
 const voiceBtn = document.getElementById('voice-btn');
 const voiceBar = document.getElementById('voice-bar');
 const voiceStateRecording = document.getElementById('voice-state-recording');
@@ -74,13 +74,13 @@ function isImageNote(note) {
 
 let currentNote = null;
 let saveTimeout = null;
-let notes = []; // unified list: notes + intent memories + scheduled reminders (normalized to jot items)
+let notes = []; // unified list: notes + scheduled reminders (normalized to jot items)
 let selectedIndex = 0;
 let deletedNotesStack = [];
 let agentPanelOpen = true;
 let folders = [];
 let folderOrganizeOpen = false;
-let currentJotDetail = null; // { type: 'trigger'|'scheduled', data } when viewing a non-note jot
+let currentJotDetail = null; // { type: 'scheduled', data } when viewing a reminder jot
 
 // Restore folder filter from previous session
 let currentFolderFilter = (() => {
@@ -102,16 +102,12 @@ function setFolderFilter(val) {
 function toJotNote(n) {
   return { jotType: 'note', id: n.id, content: n.content, folder_id: n.folder_id, created_at: n.created_at, updated_at: n.updated_at, sortAt: n.updated_at, ...n };
 }
-function toJotTrigger(m) {
-  return { jotType: 'trigger', id: m.id, content: m.content, trigger: m.trigger, category: m.category, created_at: m.created_at, sortAt: m.created_at, ...m };
-}
 function toJotScheduled(r) {
   return { jotType: 'scheduled', id: r.id, content: r.content, schedule_type: r.schedule_type, scheduled_time: r.scheduled_time, active: r.active, created_at: r.created_at, sortAt: r.created_at, ...r };
 }
 
 async function loadJots(selectId = null, selectJotType = null) {
   let rawNotes = [];
-  let rawMemories = [];
   let rawReminders = [];
 
   if (focusNoteId != null) {
@@ -122,14 +118,12 @@ async function loadJots(selectId = null, selectJotType = null) {
     rawNotes = (currentFolderFilter === 'all')
       ? await window.api.getNotes()
       : await window.api.getNotesByFolder(currentFolderFilter);
-    rawMemories = await window.api.getIntentMemories();
     rawReminders = await window.api.getScheduledReminders();
   }
 
   const noteJots = rawNotes.map(toJotNote);
-  const triggerJots = rawMemories.map(toJotTrigger);
   const scheduledJots = rawReminders.map(toJotScheduled);
-  notes = [...noteJots, ...triggerJots, ...scheduledJots].sort((a, b) => new Date(b.sortAt) - new Date(a.sortAt));
+  notes = [...noteJots, ...scheduledJots].sort((a, b) => new Date(b.sortAt) - new Date(a.sortAt));
 
   noteList.innerHTML = '';
 
@@ -157,7 +151,7 @@ async function loadJots(selectId = null, selectJotType = null) {
   }
 
   if (notes.length === 0) {
-    noteList.innerHTML = `<div class=”empty-state”>Press + to add a jot. Write a note, a time-based reminder, or “when I open X…” and the app will figure it out.</div>`;
+    noteList.innerHTML = '<div class="empty-state">Press + to add a jot. Write a note or a time-based reminder; jots that mention a place (e.g. Netflix) can surface when you are there.</div>';
     selectedIndex = -1;
     return;
   }
@@ -169,9 +163,6 @@ async function loadJots(selectId = null, selectJotType = null) {
     selectedIndex = Math.min(selectedIndex, notes.length - 1);
     if (selectedIndex < 0) selectedIndex = 0;
   }
-
-  const TRIGGER_ICONS_MAP = { netflix_open: '📺', linkedin_open: '💼', gmail_open: '📧', work_start: '🖥️', spotify_open: '🎵', general: '💡' };
-  const getTriggerIcon = (t) => TRIGGER_ICONS_MAP[t] || '💡';
 
   notes.forEach((jot, index) => {
     const div = document.createElement('div');
@@ -194,19 +185,11 @@ async function loadJots(selectId = null, selectJotType = null) {
         `;
       }
       div.addEventListener('click', () => { selectedIndex = index; openNote(jot); });
-    } else if (jot.jotType === 'trigger') {
-      const icon = getTriggerIcon(jot.trigger);
-      div.innerHTML = `
-        <div class="note-preview">${escapeHtml((jot.content || '').slice(0, 50))}</div>
-        <div class="jot-capability">${icon} ${escapeHtml(jot.trigger)} · ${escapeHtml(jot.category)}</div>
-        <div class="note-date">${date}</div>
-      `;
-      div.addEventListener('click', () => { selectedIndex = index; openJotDetail('trigger', jot); });
     } else {
       const scheduleLabel = formatScheduleLabel(jot.schedule_type, jot.scheduled_time);
       div.innerHTML = `
         <div class="note-preview">${escapeHtml((jot.content || '').slice(0, 50))}</div>
-        <div class="jot-capability">⏰ ${escapeHtml(scheduleLabel)}${jot.active ? '' : ' · paused'}</div>
+        <div class="jot-capability">⏰ Jot · ${escapeHtml(scheduleLabel)}${jot.active ? '' : ' · paused'}</div>
         <div class="note-date">${date}</div>
       `;
       div.addEventListener('click', () => { selectedIndex = index; openJotDetail('scheduled', jot); });
@@ -236,20 +219,8 @@ function openJotDetail(type, jot) {
   jotDetailView.classList.remove('hidden');
   jotDetailContent.textContent = jot.content || '';
 
-  if (type === 'trigger') {
-    const TRIGGER_ICONS_MAP = { netflix_open: '📺', linkedin_open: '💼', gmail_open: '📧', work_start: '🖥️', spotify_open: '🎵', general: '💡' };
-    jotDetailBadge.textContent = (TRIGGER_ICONS_MAP[jot.trigger] || '💡') + ' Trigger';
-    jotDetailMeta.textContent = `${jot.trigger} · ${jot.category}`;
-    jotDetailActions.innerHTML = '<button type="button" id="jot-detail-delete">Delete</button>';
-    jotDetailActions.querySelector('#jot-detail-delete').onclick = async () => {
-      await window.api.deleteIntentMemory(jot.id);
-      currentJotDetail = null;
-      jotDetailView.classList.add('hidden');
-      noteList.classList.remove('hidden');
-      await loadJots();
-    };
-  } else {
-    jotDetailBadge.textContent = '⏰ Scheduled';
+  if (type === 'scheduled') {
+    jotDetailBadge.textContent = '⏰ Jot';
     jotDetailMeta.textContent = formatScheduleLabel(jot.schedule_type, jot.scheduled_time) + (jot.active ? '' : ' · Paused');
     jotDetailActions.innerHTML = `
       <button type="button" id="jot-detail-test">▶ Test</button>
@@ -328,14 +299,20 @@ function openNote(note) {
 }
 
 async function showList() {
-  let noteIdToSelect = currentNote?.id ?? null;
-  if (currentNote && !isImageNote(currentNote)) {
+  // BUG-7: disable back button to prevent double-invocation during async parse
+  backBtn.disabled = true;
+  // BUG-3: capture currentNote now so a new note created while the LLM call is
+  // in flight doesn't get orphaned when we null currentNote at the end.
+  const savedNote = currentNote;
+  try {
+  let noteIdToSelect = savedNote?.id ?? null;
+  if (savedNote && !isImageNote(savedNote)) {
     const content = contentEl.value.trim();
     if (content === '') {
-      await window.api.deleteNote(currentNote.id);
+      await window.api.deleteNote(savedNote.id);
       noteIdToSelect = null;
     } else {
-      // Let the system figure out: note vs scheduled reminder vs trigger
+      // Note vs scheduled reminder (context-style lines stay as plain notes)
       const reminderParsed = parseReminderNLClient(content);
       if (reminderParsed) {
         const { error } = await window.api.createScheduledReminder({
@@ -344,30 +321,21 @@ async function showList() {
           scheduledTime: reminderParsed.scheduledTime,
         });
         if (!error) {
-          await window.api.deleteNote(currentNote.id);
+          await window.api.deleteNote(savedNote.id);
           noteIdToSelect = null;
         } else {
           autoSave();
         }
       } else {
-        const { intent, error: parseErr } = await window.api.parseIntent(content);
-        if (!parseErr && intent && intent.trigger && intent.trigger !== 'general') {
-          const { error: saveErr } = await window.api.saveIntentMemory(intent);
-          if (!saveErr) {
-            await window.api.deleteNote(currentNote.id);
-            noteIdToSelect = null;
-          } else {
-            autoSave();
-          }
-        } else {
-          autoSave();
-        }
+        autoSave();
       }
     }
-  } else if (currentNote && isImageNote(currentNote)) {
+  } else if (savedNote && isImageNote(savedNote)) {
     // Image note: nothing to parse
   }
-  currentNote = null;
+  // Only clear currentNote if the user hasn't started editing a new note while
+  // the async LLM call was in flight (BUG-3 re-entrancy guard).
+  if (currentNote === savedNote) currentNote = null;
   currentJotDetail = null;
   contentEl.classList.remove('hidden');
   imageDisplay.classList.add('hidden');
@@ -377,6 +345,9 @@ async function showList() {
   noteList.classList.remove('hidden');
   noteList.style.display = '';
   await loadJots(noteIdToSelect, 'note');
+  } finally {
+    backBtn.disabled = false;
+  }
 }
 
 function autoSave() {
@@ -475,15 +446,24 @@ document.addEventListener('keydown', async (e) => {
     }
     if (e.key === 'Enter') {
       e.preventDefault();
-      openNote(notes[selectedIndex]);
+      const jot = notes[selectedIndex];
+      if (jot.jotType === 'note') {
+        openNote(jot);
+      } else {
+        openJotDetail(jot.jotType, jot);
+      }
       return;
     }
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
-      const note = notes[selectedIndex];
-      deletedNotesStack.push({ ...note });
-      await window.api.deleteNote(note.id);
-      notes = notes.filter((n) => n.id !== note.id);
+      const jot = notes[selectedIndex];
+      if (jot.jotType === 'scheduled') {
+        await window.api.deleteScheduledReminder(jot.id);
+      } else {
+        deletedNotesStack.push({ ...jot });
+        await window.api.deleteNote(jot.id);
+      }
+      notes = notes.filter((n) => n.id !== jot.id);
       selectedIndex = Math.min(selectedIndex, notes.length - 1);
       if (notes.length === 0) selectedIndex = -1;
       await loadJots();
@@ -629,13 +609,23 @@ function restoreAgentChat() {
   if (saved) agentMessages.innerHTML = saved;
 }
 
+/**
+ * @returns {Promise<{ ok: boolean, skipped?: boolean, errorMessage?: string }>}
+ */
 async function sendAgentMessage() {
   const text = agentInput.value.trim();
-  if (!text) return;
+  if (!text) return { ok: false, skipped: true };
 
   // Disable input during request to prevent double-submit
   agentInput.disabled = true;
   agentSendBtn.disabled = true;
+
+  // BUG-9: 30-second timeout so UI never freezes indefinitely
+  const AGENT_TIMEOUT_MS = 30_000;
+  let agentTimeoutId;
+  const agentTimeoutPromise = new Promise((_, reject) => {
+    agentTimeoutId = setTimeout(() => reject(new Error('Request timed out after 30 seconds.')), AGENT_TIMEOUT_MS);
+  });
 
   // Remove empty state
   const emptyState = agentMessages.querySelector('.agent-empty-state');
@@ -665,31 +655,40 @@ async function sendAgentMessage() {
     const isHelpQuery = helpKeywords.some(kw => text.toLowerCase().includes(kw));
 
     if (isHelpQuery) {
-      const { response, error: helpError } = await window.api.intelligenceQueryHelp(text);
+      const { response, error: helpError } = await Promise.race([
+        window.api.intelligenceQueryHelp(text),
+        agentTimeoutPromise,
+      ]);
       if (helpError) {
         replyMsg.className = 'agent-message error';
         replyMsg.textContent = helpError;
-        return;
+        return { ok: false, errorMessage: helpError };
       }
       replyMsg.className = 'agent-message assistant';
       replyMsg.textContent = response;
-      return;
+      return { ok: true };
     }
 
     // Notes context: use current filter state; fall back to all notes if list is empty
     const notesContext = notes.length > 0 ? notes : await window.api.getNotes();
 
     // Step 1: LLM → structured action array
-    const { actions, error: llmError } = await window.api.intelligenceQueryStructured(text, notesContext);
+    const { actions, error: llmError } = await Promise.race([
+      window.api.intelligenceQueryStructured(text, notesContext),
+      agentTimeoutPromise,
+    ]);
 
     if (llmError) {
       replyMsg.className = 'agent-message error';
       replyMsg.textContent = llmError;
-      return;
+      return { ok: false, errorMessage: llmError };
     }
 
     // Step 2: execute actions
-    const execResult = await window.api.intelligenceExecute(actions);
+    const execResult = await Promise.race([
+      window.api.intelligenceExecute(actions),
+      agentTimeoutPromise,
+    ]);
 
     // Debug: log to console
     console.log('[Easy Jot Agent] Actions:', actions);
@@ -710,11 +709,13 @@ async function sendAgentMessage() {
     debugEl.className = 'agent-actions-debug';
     debugEl.textContent = formatActionsDebug(actions);
     replyMsg.appendChild(debugEl);
-
+    return { ok: true };
   } catch (err) {
     replyMsg.className = 'agent-message error';
     replyMsg.textContent = err.message || 'Something went wrong.';
+    return { ok: false, errorMessage: err.message || 'Something went wrong.' };
   } finally {
+    clearTimeout(agentTimeoutId);
     agentInput.disabled = false;
     agentSendBtn.disabled = false;
     agentMessages.scrollTop = agentMessages.scrollHeight;
@@ -728,7 +729,8 @@ function buildActionSummary(actions, execResult) {
     return `Error: ${execResult.errors.map(e => e.error).join('; ')}`;
   }
 
-  let noteCount = 0, folderCount = 0, movedCount = 0, searchCount = 0, searchRan = false, organizeGroups = 0;
+  let noteCount = 0, folderCount = 0, movedCount = 0, searchCount = 0, searchRan = false,
+      organizeGroups = 0, remindersCount = 0, deletedCount = 0;
 
   for (const r of execResult.results) {
     switch (r.type) {
@@ -740,6 +742,10 @@ function buildActionSummary(actions, execResult) {
         organizeGroups += Array.isArray(r.result) ? r.result.length : 1;
         movedCount += (r.result || []).reduce((s, g) => s + (g.movedNoteIds?.length || 0), 0);
         break;
+      case 'list_reminders':       remindersCount = r.result?.count ?? 0; break;
+      case 'search_reminders':     remindersCount = r.result?.count ?? 0; break;
+      case 'toggle_reminder':      break;
+      case 'delete_reminder':      deletedCount++; break;
     }
   }
 
@@ -748,7 +754,9 @@ function buildActionSummary(actions, execResult) {
   if (folderCount)     parts.push(`Created ${folderCount} folder${folderCount > 1 ? 's' : ''}`);
   if (organizeGroups)  parts.push(`Organized into ${organizeGroups} folder${organizeGroups > 1 ? 's' : ''}`);
   else if (movedCount) parts.push(`Moved ${movedCount} note${movedCount > 1 ? 's' : ''}`);
-  if (searchRan)       parts.push(`Found ${searchCount} matching note${searchCount !== 1 ? 's' : ''}`);
+  if (searchRan && searchCount > 0) parts.push(`Found ${searchCount} matching note${searchCount !== 1 ? 's' : ''}`);
+  if (remindersCount > 0) parts.push(`${remindersCount} reminder${remindersCount !== 1 ? 's' : ''}`);
+  if (deletedCount > 0) parts.push(`Deleted ${deletedCount} item${deletedCount !== 1 ? 's' : ''}`);
   if (execResult.errors.length > 0) {
     parts.push(`${execResult.errors.length} action${execResult.errors.length > 1 ? 's' : ''} failed`);
   }
@@ -1126,7 +1134,7 @@ async function stopVoiceRecording() {
   const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
   const arrayBuffer = await blob.arrayBuffer();
 
-  // Transcribe via Pulse STT (or Whisper fallback)
+  // Transcribe via Smallest AI Pulse (OpenAI is agent-only, not STT)
   const { transcript, words, provider, error: transcribeError } = await window.api.transcribeAudio(arrayBuffer);
   if (transcribeError) {
     showVoiceError(transcribeError);
@@ -1142,7 +1150,7 @@ async function stopVoiceRecording() {
   voiceTranscriptText.textContent = `"${pendingTranscript}"`;
   // Show which STT provider was used (subtle indicator)
   const badge = voiceTranscriptText.parentElement.querySelector('.stt-badge');
-  if (badge) badge.textContent = provider === 'pulse' ? 'Pulse STT' : 'Whisper';
+  if (badge) badge.textContent = provider === 'pulse' ? 'Pulse STT' : 'STT';
 
   setVoiceBarState('review');
 }
@@ -1158,25 +1166,16 @@ async function saveVoiceMemory() {
   if (!pendingTranscript) return;
 
   setVoiceBarState('processing');
-  voiceProcessingLabel.textContent = 'Extracting intent…';
+  voiceProcessingLabel.textContent = 'Saving your jot…';
 
-  const { intent, error: parseError } = await window.api.parseIntent(pendingTranscript);
-  if (parseError) {
-    showVoiceError(parseError);
-    return;
-  }
-
-  const { memory, audioData, error: saveError } = await window.api.saveIntentMemory(intent);
-  if (saveError) {
-    showVoiceError(saveError);
+  const note = await window.api.createNote(pendingTranscript);
+  if (!note || !note.id) {
+    showVoiceError('Could not save jot.');
     return;
   }
 
   pendingTranscript = null;
   setVoiceBarState('success');
-
-  // Speak the confirmation aloud (Lightning TTS) if configured
-  playAudioBuffer(audioData);
 
   await loadJots();
 
@@ -1218,40 +1217,80 @@ voiceDismissBtn.addEventListener('click', dismissVoiceBar);
 voiceErrorDismissBtn.addEventListener('click', dismissVoiceBar);
 
 // ════════════════════════════════════════════════════════════════════════════
-// TRIGGER SIMULATION & NOTIFICATION
+// CONTEXT NOTIFICATION (workflow watcher — keyword-matched notes only)
 // ════════════════════════════════════════════════════════════════════════════
 
-async function simulateTrigger(triggerId) {
-  const result = await window.api.simulateTrigger(triggerId);
-  if (result.error) {
-    console.error('[Trigger]', result.error);
-    return;
-  }
-
+/**
+ * Render the context notification from a result payload (notes whose text matches this screen).
+ * appName: frontmost app / tab context for the "why" line.
+ */
+function showTriggerNotification(result, isAuto = false, appName = null) {
   triggerNotificationIcon.textContent  = result.icon;
-  triggerNotificationLabel.textContent = result.label;
+  triggerNotificationLabel.textContent = result.label + (isAuto ? ' (auto)' : '');
   triggerNotificationMemories.innerHTML = '';
 
-  if (result.memories.length === 0) {
-    const empty = document.createElement('div');
-    empty.className  = 'trigger-memory-empty';
-    empty.textContent = `No reminders for ${result.label} yet. Record a voice memory first!`;
-    triggerNotificationMemories.appendChild(empty);
-  } else {
-    result.memories.forEach(mem => {
-      const item = document.createElement('div');
-      item.className = 'trigger-memory-item';
-      item.innerHTML = `
-        <div class="memory-category">${escapeHtml(mem.category)}</div>
-        ${escapeHtml(mem.content)}
-      `;
-      triggerNotificationMemories.appendChild(item);
-    });
-  }
+  result.memories.forEach((mem) => {
+    const item = document.createElement('div');
+    item.className = 'trigger-memory-item';
+
+    const contentRow = document.createElement('div');
+    contentRow.className = 'memory-content-row';
+    contentRow.innerHTML = `<div class="memory-category">${escapeHtml(mem.category || 'note')}</div>
+      <div class="memory-text">${escapeHtml(mem.content)}</div>`;
+    item.appendChild(contentRow);
+
+    if (mem.id) {
+      const actions = document.createElement('div');
+      actions.className = 'memory-actions';
+
+      const snoozeBtn = document.createElement('button');
+      snoozeBtn.className = 'memory-action-btn';
+      snoozeBtn.textContent = 'Snooze 30m';
+      snoozeBtn.title = 'Hide for 30 minutes';
+      snoozeBtn.addEventListener('click', async () => {
+        await window.api.snoozeContextNote(mem.id, 30);
+        item.remove();
+        if (!triggerNotificationMemories.querySelector('.trigger-memory-item')) {
+          closeTriggerNotification();
+        }
+      });
+      actions.appendChild(snoozeBtn);
+
+      const doneBtn = document.createElement('button');
+      doneBtn.className = 'memory-action-btn';
+      doneBtn.textContent = 'Done';
+      doneBtn.title = 'Suppress from future auto-surfacing';
+      doneBtn.addEventListener('click', async () => {
+        await window.api.dismissContextNote(mem.id);
+        item.remove();
+        if (!triggerNotificationMemories.querySelector('.trigger-memory-item')) {
+          closeTriggerNotification();
+        }
+      });
+      actions.appendChild(doneBtn);
+
+      const whyBtn = document.createElement('button');
+      whyBtn.className = 'memory-action-btn memory-why-btn';
+      whyBtn.textContent = 'Why?';
+      whyBtn.title = 'Why did I see this?';
+      const whyText = document.createElement('div');
+      whyText.className = 'memory-why-text hidden';
+      whyText.textContent = isAuto && appName
+        ? `Matched a keyword in your note while you were in ${appName}. Note #${mem.id}.`
+        : `Surfaced for ${result.label}.`;
+      whyBtn.addEventListener('click', () => {
+        whyText.classList.toggle('hidden');
+      });
+      actions.appendChild(whyBtn);
+      item.appendChild(whyText);
+      item.appendChild(actions);
+    }
+
+    triggerNotificationMemories.appendChild(item);
+  });
 
   triggerNotification.classList.remove('hidden');
 
-  // Speak the reminder aloud (Lightning TTS) if configured
   playAudioBuffer(result.audioData);
 
   clearTimeout(triggerNotifTimeout);
@@ -1265,8 +1304,14 @@ function closeTriggerNotification() {
 
 triggerNotificationClose.addEventListener('click', closeTriggerNotification);
 
-document.querySelectorAll('.trigger-btn').forEach(btn => {
-  btn.addEventListener('click', () => simulateTrigger(btn.dataset.trigger));
+// Workflow watcher: auto-surface when main process detects frontmost app change
+window.api.onWorkflowTrigger((result) => {
+  if (result.error) {
+    console.warn('[workflow-trigger] error:', result.error);
+    return;
+  }
+  if (!result.memories || result.memories.length === 0) return; // nothing to show
+  showTriggerNotification(result, true, result.appName || null);
 });
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1280,14 +1325,25 @@ async function checkConfigStatus() {
   const configBar = document.getElementById('config-bar');
   if (!configBar) return;
 
-  if (!status.hasOpenAI && !status.hasSmallest && !status.useOllama) {
-    configBar.textContent = '⚙️ No API key found — voice & AI features disabled. See README for setup.';
+  const agentOn = status.hasOpenAI || status.useOllama;
+  const voiceOn = status.hasSmallest;
+
+  if (!agentOn && !voiceOn) {
+    configBar.textContent = 'No API keys configured — voice and AI features disabled. '
+      + 'Copy ~/Library/Application Support/easy-jot/config.json from config.example.json in the repo '
+      + 'and add openaiApiKey (or set useOllama:true) and smallestAiKey. '
+      + 'Env vars: EASY_JOT_OPENAI_API_KEY, SMALLEST_AI_KEY.';
     configBar.classList.remove('hidden');
-  } else if (status.ttsEnabled) {
-    // Show TTS enabled badge briefly
-    configBar.textContent = `✓ Smallest AI: ${status.sttProvider?.toUpperCase()} + TTS enabled`;
+  } else if (voiceOn && agentOn) {
+    configBar.textContent = `✓ Smallest AI: ${(status.sttProvider || 'pulse').toUpperCase()} + TTS · GPT agent`;
     configBar.classList.remove('hidden');
-    setTimeout(() => configBar.classList.add('hidden'), 4000);
+    setTimeout(() => configBar.classList.add('hidden'), 4500);
+  } else if (voiceOn) {
+    configBar.textContent = '✓ Smallest AI voice + TTS — add openaiApiKey for GPT agent';
+    configBar.classList.remove('hidden');
+  } else {
+    configBar.textContent = '⚙️ GPT agent — add smallestAiKey for voice (Pulse STT + TTS)';
+    configBar.classList.remove('hidden');
   }
 }
 
@@ -1334,14 +1390,14 @@ function extractReminderContent(text, patterns) {
 function parseReminderNLClient(input) {
   if (!input.trim()) return null;
 
-  const inRel = input.match(/\bin\s+(\d+)\s+(minute|minutes|min|hour|hours|hr|hrs)\b/i);
+  const inRel = input.match(/\bin\s+(\d+)\s+(minute|minutes|mins?|hour|hours|hr|hrs)\b/i);
   if (inRel) {
     const amount = parseInt(inRel[1], 10);
     const d = new Date();
     if (inRel[2].toLowerCase().startsWith('h')) d.setHours(d.getHours() + amount);
     else d.setMinutes(d.getMinutes() + amount);
     return {
-      content: extractReminderContent(input, [/\bin\s+\d+\s+(minute|minutes|min|hour|hours|hr|hrs)\b/i]),
+      content: extractReminderContent(input, [/\bin\s+\d+\s+(minute|minutes|mins?|hour|hours|hr|hrs)\b/i]),
       scheduleType: 'once',
       scheduledTime: d.toISOString(),
     };
@@ -1392,19 +1448,6 @@ function parseReminderNLClient(input) {
   }
 
   return null; // not parsed
-}
-
-// ── Schedule label formatter ──────────────────────────────────────────────
-
-function formatScheduleLabel(scheduleType, scheduledTime) {
-  if (scheduleType === 'daily') {
-    const [hh, mm] = scheduledTime.split(':').map(Number);
-    const d = new Date();
-    d.setHours(hh, mm, 0, 0);
-    return 'Daily at ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  }
-  const d = new Date(scheduledTime);
-  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
 // ── Reminder notification ─────────────────────────────────────────────────
@@ -1463,7 +1506,7 @@ function setVoiceCmdState(state) {
 
 async function startVoiceCmd() {
   if (cmdMActive) { stopVoiceCmd(); return; }
-  if (voiceActive) return; // Cmd+Shift+J is already recording
+  if (voiceActive) return; // dedicated voice bar recording in progress
 
   let stream;
   try {
@@ -1530,32 +1573,19 @@ async function sendVoiceCmd() {
 
 async function executeCmdClassification(rawTranscript, classification) {
   const { mode, payload } = classification;
-  if (mode === 'trigger') {
-    await executeCmdTrigger(payload, rawTranscript);
-  } else if (mode === 'scheduled') {
+  if (mode === 'scheduled') {
     await executeCmdScheduled(payload, rawTranscript);
   } else if (mode === 'dictate') {
     await executeCmdDictate(payload.text || rawTranscript);
   } else if (mode === 'app_control') {
     await executeCmdAppControl(payload);
   } else if (mode === 'agent') {
-    executeCmdAgent(payload.query || rawTranscript);
+    await executeCmdAgent(payload.query || rawTranscript);
+  } else if (mode === 'error') {
+    showVoiceCmdError(payload.message || 'Voice command failed.');
   } else {
-    await executeCmdDictate(rawTranscript);
+    showVoiceCmdError(`Unknown voice mode: ${mode}`);
   }
-}
-
-async function executeCmdTrigger(payload, rawTranscript) {
-  const intent = {
-    trigger:  payload.trigger  || 'general',
-    content:  payload.content  || rawTranscript,
-    category: payload.category || 'other',
-  };
-  const { memory, audioData, error } = await window.api.saveIntentMemory(intent);
-  if (error) { showVoiceCmdError(error); return; }
-  playAudioBuffer(audioData);
-  await loadJots();
-  showVoiceCmdSuccess('🎯', 'Trigger memory saved');
 }
 
 async function executeCmdScheduled(payload, rawTranscript) {
@@ -1569,7 +1599,7 @@ async function executeCmdScheduled(payload, rawTranscript) {
   const { reminder, error } = await window.api.createScheduledReminder({ content, scheduleType, scheduledTime });
   if (error) { showVoiceCmdError(error); return; }
   await loadJots();
-  showVoiceCmdSuccess('⏰', 'Reminder set');
+  showVoiceCmdSuccess('⏰', 'Jot saved');
 }
 
 // Strip meta-instruction prefixes the LLM sometimes leaves in dictated text.
@@ -1629,7 +1659,7 @@ async function executeCmdAppControl(payload) {
       break;
     }
     case 'delete':
-      if (currentNote && currentNote.jotType !== 'trigger' && currentNote.jotType !== 'scheduled') {
+      if (currentNote && !currentNote.jotType) {
         deletedNotesStack.push({ ...currentNote });
         await window.api.deleteNote(currentNote.id);
         currentNote = null;
@@ -1662,9 +1692,6 @@ async function executeCmdAppControl(payload) {
       }
       break;
     }
-    case 'simulate_trigger':
-      if (params.trigger) await simulateTrigger(params.trigger);
-      break;
     default:
       showVoiceCmdError(`Unknown action: ${action}`);
       return;
@@ -1672,13 +1699,21 @@ async function executeCmdAppControl(payload) {
   showVoiceCmdSuccess('✅', `Done: ${String(action).replace(/_/g, ' ')}`);
 }
 
-function executeCmdAgent(query) {
+async function executeCmdAgent(query) {
   showAgentPanel();
   agentInput.value = query;
   agentInput.focus();
-  // Submit after a short frame so the panel has time to open
-  setTimeout(() => sendAgentMessage(), 50);
-  showVoiceCmdSuccess('🤖', 'Sent to agent');
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const result = await sendAgentMessage();
+  if (result.skipped) {
+    showVoiceCmdError('Nothing to send to the agent.');
+    return;
+  }
+  if (!result.ok) {
+    showVoiceCmdError(result.errorMessage || 'Agent request failed — see agent panel.');
+    return;
+  }
+  showVoiceCmdSuccess('🤖', 'Agent finished');
 }
 
 function showVoiceCmdSuccess(icon, text) {

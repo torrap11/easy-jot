@@ -16,9 +16,9 @@ function currentHHMM() {
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 
+// BUG-5 fix: now uses UTC to match SQLite's datetime('now') storage
 function todayDateStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  return new Date().toISOString().substring(0, 10);
 }
 
 function isDue(reminder) {

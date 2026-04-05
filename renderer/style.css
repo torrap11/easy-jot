@@ -975,50 +975,6 @@ body {
   color: #065f46;
 }
 
-/* ── Trigger demo panel (inside agent panel) ── */
-
-#trigger-demo {
-  border-top: 1px solid #e5d89c;
-  padding: 8px;
-  flex-shrink: 0;
-}
-
-#trigger-demo-label {
-  font-size: 10px;
-  color: #a16207;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  text-transform: uppercase;
-  margin-bottom: 6px;
-}
-
-#trigger-demo-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.trigger-btn {
-  background: none;
-  border: 1px solid #d4a017;
-  color: #78350f;
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.12s;
-}
-
-.trigger-btn:hover {
-  background: #fde68a;
-  border-color: #92400e;
-}
-
-.trigger-btn:active {
-  background: #fbbf24;
-}
-
 /* ── Trigger notification overlay ── */
 
 #trigger-notification {
@@ -1111,6 +1067,41 @@ body {
   color: #64748b;
   font-style: italic;
   padding: 4px 0;
+}
+
+.memory-content-row { margin-bottom: 4px; }
+
+.memory-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.memory-action-btn {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid #475569;
+  background: #1e293b;
+  color: #94a3b8;
+  cursor: pointer;
+  line-height: 1.4;
+}
+.memory-action-btn:hover { background: #334155; color: #e2e8f0; }
+
+.memory-why-text {
+  font-size: 10px;
+  color: #94a3b8;
+  font-style: italic;
+  margin-top: 3px;
+  padding: 3px 6px;
+  background: #1e293b;
+  border-radius: 4px;
+}
+
+.memory-why-text.hidden {
+  display: none;
 }
 
 /* ── Memories view ── */

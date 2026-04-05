@@ -13,6 +13,8 @@ Requires Node.js 18+ and Xcode Command Line Tools (`xcode-select --install`) for
 
 Create your config at `~/Library/Application Support/easy-jot/config.json` — see [README.md](README.md#configuration). Never commit this file; it contains API keys.
 
+For a **maintainer “full v1.0” oneshot** (gap analysis, BUG-3, docs, gitignore, release hygiene), use **[docs/claude-code-full-product-oneshot-prompt.md](docs/claude-code-full-product-oneshot-prompt.md)** as the task prompt for Claude Code or similar.
+
 ## Project Structure
 
 ```
@@ -20,7 +22,7 @@ main.js                  Electron main process — window, hotkeys, IPC
 preload.js               Context bridge — exposes window.api
 database.js              SQLite CRUD — all four tables
 config.js                Config loader — env vars > config.json > defaults
-voice.js                 STT — Pulse (primary), Whisper (fallback)
+voice.js                 STT — Smallest AI Pulse only (OpenAI is GPT agent only)
 tts.js                   TTS — Smallest AI Lightning, returns WAV buffer
 intentParser.js          LLM → { trigger, content, category }
 triggerEngine.js         Canonical trigger IDs, normalizeTrigger()
@@ -73,11 +75,22 @@ dev-docs/                Product strategy docs
 
 ## Known Issues to Fix
 
-See [docs/known-issues.md](docs/known-issues.md). The highest-priority items:
+See [docs/known-issues.md](docs/known-issues.md). All numbered bugs (BUG-1 through BUG-12) are fixed. New bugs should be added to the **Open Bugs** section of that file with the next available number.
 
-- **BUG-1**: Delete key in note list calls `deleteNote` for trigger/scheduled jots — should dispatch to the correct delete IPC based on `jotType`
-- **BUG-2**: Enter key in note list calls `openNote` for trigger/scheduled jots — should call `openJotDetail`
-- **BUG-5**: Daily reminders can double-fire in non-UTC timezones — SQLite stores UTC, comparison uses local date
+## Running Tests
+
+```bash
+# Fast smoke suite — pure-JS tests, no native module rebuild needed
+npm run smoke
+
+# Full suite — rebuilds better-sqlite3 first, then runs all tests including DB tests
+npm test
+```
+
+**`npm run smoke`** runs the tests that require only Node.js and no native modules or Electron GUI:
+`test-executor`, `test-keybinds`, `test-reminder-parser`, `test-scheduler-logic`, `test-trigger-engine`, `test-voice-command`, `test-voice-deterministic`, `test-context-map`.
+
+**`npm test`** additionally runs `test-database` which requires `better-sqlite3` to be compiled for the current Electron ABI. If `npm test` fails with a native module error, run `xcode-select --install` and then `npm install` (which triggers `electron-rebuild` via the `postinstall` hook). Tests that require the native module will not pass in a CI environment without a Xcode toolchain.
 
 ## Commit Conventions
 

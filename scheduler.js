@@ -21,10 +21,13 @@ function currentHHMM() {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-/** Today's date as 'YYYY-MM-DD' in local time. */
+/**
+ * Today's date as 'YYYY-MM-DD' in UTC.
+ * Must match the UTC date stored by SQLite's datetime('now') in markReminderTriggered.
+ * BUG-5: using local time here caused double-fires for users west of UTC.
+ */
 function todayDateStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return new Date().toISOString().substring(0, 10);
 }
 
 /**

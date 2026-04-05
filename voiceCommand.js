@@ -3,16 +3,56 @@
 /**
  * voiceCommand.js — LLM classifier for the universal Cmd+M voice command.
  *
- * Takes a transcript and returns { mode, payload } where mode is one of:
- *   'dictate'     → insert text into note or create new note
- *   'app_control' → execute a UI action (back, new note, delete, trigger, etc.)
- *   'agent'       → send query to the AI agent panel
+ * Returns { mode, payload } where mode is one of:
+ *   'dictate' | 'app_control' | 'agent' | 'scheduled' | 'error'
  *
- * Falls back to { mode: 'dictate', payload: { text: transcript }, fallback: true }
- * if the LLM is unavailable or returns unparseable JSON.
+ * Deterministic keyword routing sends organizer/search phrases straight to `agent`
+ * without the LLM. LLM failures or unparseable classifier output yield `mode: 'error'`
+ * (no silent fallback to a new jot).
  */
 
-const { callLLM } = require('./llm');
+const { callLLM, describeLLMError } = require('./llm');
+const { getConfig } = require('./config');
+
+/** High-confidence phrases → agent (skip LLM classifier). */
+function deterministicAgentRoute(transcript) {
+  const t = transcript.trim();
+  if (!t) return null;
+  const patterns = [
+    /\borganize\s+(my\s+)?(notes|jots)\b/i,
+    /\b(create|make|add)\s+(a\s+)?new\s+folder\b/i,
+    /\b(create|make)\s+(a\s+)?folder\s+named\b/i,
+    /\b(create|make)\s+(a\s+)?folder\b/i,
+    /\blist\s+(all\s+)?(my\s+)?(scheduled\s+)?reminders\b/i,
+    /\bsearch\s+(my\s+)?(notes|jots)\s+for\b/i,
+    /\bsearch\s+(my\s+)?(notes|jots)\b/i,
+    /\bfind\s+(all\s+)?(my\s+)?notes\b/i,
+    /\bfind\s+.*\bin\s+(my\s+)?notes\b/i,
+    /\bwhat\s+are\s+my\s+reminders\b/i,
+    /\bdelete\s+reminder\b/i,
+    /\bmove\s+(all\s+)?(my\s+)?notes\b/i,
+    /\bsort\s+(my\s+)?notes\b/i,
+    /\bput\s+these\s+notes\s+into\s+folders\b/i,
+    /\bgroup\s+(my\s+)?notes\b/i,
+  ];
+  for (const re of patterns) {
+    if (re.test(t)) return { mode: 'agent', payload: { query: t } };
+  }
+  return null;
+}
+
+/** "When I'm on Netflix…" style lines are saved as plain notes; keyword matching surfaces them on the right screen. */
+function deterministicDictateRoute(transcript) {
+  const t = transcript.trim();
+  if (!t) return null;
+  if (/\bwhen\s+(I\s+open|I'?m\s+on|I\s+visit|I\s+go\s+to)\b/i.test(t)) {
+    return { mode: 'dictate', payload: { text: t } };
+  }
+  if (/\b(next\s+time|remind\s+me\s+when|whenever)\s+I\s+open\b/i.test(t)) {
+    return { mode: 'dictate', payload: { text: t } };
+  }
+  return null;
+}
 
 const CLASSIFIER_SYSTEM_PROMPT = `You are a voice command classifier for a sticky-note app called Jot.
 Given a spoken command transcript, classify it into EXACTLY ONE mode and extract a structured payload.
@@ -22,16 +62,6 @@ Respond with ONLY a valid JSON object — no prose, no markdown fences:
   "mode": "<mode>",
   "payload": { ... }
 }
-
-━━━ MODE: trigger ━━━
-User is creating a context-triggered memory: something they want to remember when they open a specific app.
-Trigger patterns: "when I open X", "when I'm on X", "remind me when X", "next time I open X", "whenever X opens"
-payload: { "trigger": "<trigger_id>", "content": "<what to remember>", "category": "<work|personal|entertainment|health|other>" }
-trigger_ids: "netflix_open", "spotify_open", "general"
-Examples:
-  "When I open Spotify remind me to listen to Kanye's new album" → { "trigger": "spotify_open", "content": "Listen to Kanye's new album", "category": "entertainment" }
-  "When I open Netflix remember to switch audio to Spanish" → { "trigger": "netflix_open", "content": "Switch audio to Spanish", "category": "entertainment" }
-  "Remind me to stretch" → { "trigger": "general", "content": "Stretch", "category": "health" }
 
 ━━━ MODE: scheduled ━━━
 User is setting a time-based reminder — something to be spoken aloud at a specific time or on a recurring schedule.
@@ -50,9 +80,10 @@ Examples:
 
 ━━━ MODE: dictate ━━━
 User is speaking text to be saved as a plain note or inserted at the cursor.
+Also use dictate for context-style reminders the app will surface later when keywords match the screen (e.g. Netflix, Spotify): keep the full spoken line including app names so notes can match.
 Trigger words/patterns: "write", "add", "note that", "jot down", "note:"
-Or any plain statement with no app-control, trigger, scheduled, or agent intent.
-payload: { "text": "<the content, cleaned of meta-words like 'write' or 'note that'>" }
+Or any plain statement with no app-control, scheduled, or agent intent.
+payload: { "text": "<the content, cleaned of meta-words like 'write' or 'note that' unless it's a 'when I open…' line — then keep the full line>" }
 Examples:
   "Write meeting notes for tomorrow" → { "text": "meeting notes for tomorrow" }
   "Add buy groceries" → { "text": "buy groceries" }
@@ -60,10 +91,12 @@ Examples:
   "Make a note saying watching Breaking Bad" → { "text": "watching Breaking Bad" }
   "Create a note that says pick up dry cleaning" → { "text": "pick up dry cleaning" }
   "Jot down remember to call mom" → { "text": "remember to call mom" }
+  "When I open Netflix remember to switch audio to Spanish" → { "text": "When I open Netflix remember to switch audio to Spanish" }
+  "Next time I open Spotify listen to the new album" → { "text": "Next time I open Spotify listen to the new album" }
 
 ━━━ MODE: app_control ━━━
 User is commanding the app to perform a navigation or UI action.
-Trigger words/patterns: "go back", "new note", "delete", "undo", "open X app", "show agent", "navigate", "move", "folder".
+Trigger words/patterns: "go back", "new note", "delete", "undo", "show agent", "navigate", "move", "folder".
 payload: { "action": "<action_id>", "params": { ... } }
 
 Available action_ids (use ONLY these):
@@ -75,12 +108,9 @@ Available action_ids (use ONLY these):
   "open_folder_view"    — open the folder organize view
   "close_view"          — close current panel
   "navigate"            — move selection; params: { "direction": "up"|"down", "count": <number> }
-  "simulate_trigger"    — fire a context trigger; params: { "trigger": "<trigger_id>" }
 
 Examples:
   "Go back" → { "action": "back" }
-  "Open Spotify" → { "action": "simulate_trigger", "params": { "trigger": "spotify_open" } }
-  "Open Netflix" → { "action": "simulate_trigger", "params": { "trigger": "netflix_open" } }
   "Show agent" → { "action": "focus_agent" }
   "Move down 3" → { "action": "navigate", "params": { "direction": "down", "count": 3 } }
 
@@ -93,7 +123,7 @@ Examples:
   "Organize my notes into folders" → { "query": "Organize my notes into folders" }
 
 ━━━ PRIORITY RULES ━━━
-- "when I open X" / "next time I open X" → ALWAYS trigger (not dictate)
+- "when I open X" / "next time I open X" / "remind me when I'm on X" → ALWAYS dictate (plain note; keywords surface it on the right screen)
 - Time phrases ("at X PM", "every day at", "in X minutes") → ALWAYS scheduled (not dictate)
 - Navigation/UI app commands → app_control
 - Multi-note search/organize → agent
@@ -128,9 +158,10 @@ function parseClassification(raw) {
 
   if (!parsed) return null;
 
-  const validModes = ['dictate', 'app_control', 'agent', 'trigger', 'scheduled'];
+  const validModes = ['dictate', 'app_control', 'agent', 'scheduled', 'error'];
   if (!validModes.includes(parsed.mode)) return null;
   if (!parsed.payload || typeof parsed.payload !== 'object') return null;
+  if (parsed.mode === 'error' && typeof parsed.payload.message !== 'string') return null;
 
   return parsed;
 }
@@ -143,24 +174,51 @@ function parseClassification(raw) {
  */
 async function classifyVoiceCommand(transcript) {
   if (!transcript || !transcript.trim()) {
-    return { mode: 'dictate', payload: { text: transcript || '' }, fallback: true };
+    return {
+      mode: 'error',
+      payload: {
+        message: 'No text to classify. Speak again or check the microphone.',
+      },
+    };
   }
+
+  const trimmed = transcript.trim();
+  const routed = deterministicAgentRoute(trimmed);
+  if (routed) return routed;
+
+  const dictateCtx = deterministicDictateRoute(trimmed);
+  if (dictateCtx) return dictateCtx;
 
   let raw;
   try {
-    raw = await callLLM(CLASSIFIER_SYSTEM_PROMPT, transcript.trim(), []);
+    raw = await callLLM(CLASSIFIER_SYSTEM_PROMPT, trimmed, []);
   } catch (err) {
-    console.warn('[voiceCommand] LLM unavailable, defaulting to dictate:', err.message);
-    return { mode: 'dictate', payload: { text: transcript.trim() }, fallback: true };
+    console.warn('[voiceCommand] LLM unavailable:', err.message);
+    return {
+      mode: 'error',
+      payload: {
+        message: `${describeLLMError(err, getConfig())} Voice commands need the LLM; fix config or type in the agent panel.`,
+      },
+    };
   }
 
   const parsed = parseClassification(raw);
   if (!parsed) {
-    console.warn('[voiceCommand] Could not parse LLM response, defaulting to dictate:', raw.slice(0, 100));
-    return { mode: 'dictate', payload: { text: transcript.trim() }, fallback: true };
+    console.warn('[voiceCommand] Unparseable LLM response:', String(raw).slice(0, 120));
+    return {
+      mode: 'error',
+      payload: {
+        message:
+          'Could not interpret that voice command. Rephrase, or open the agent panel and type your request.',
+      },
+    };
   }
 
   return { mode: parsed.mode, payload: parsed.payload };
 }
 
-module.exports = { classifyVoiceCommand };
+module.exports = {
+  classifyVoiceCommand,
+  routeVoiceIntentDeterministic: deterministicAgentRoute,
+  routeContextPhraseToDictate: deterministicDictateRoute,
+};

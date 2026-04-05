@@ -8,7 +8,7 @@
  *   "every day at 10 PM remind me ..."      → daily, 22:00
  *   "daily at 10 PM ..."                    → daily, 22:00
  *   "tomorrow at 8 AM ..."                  → once, next day at 08:00
- *   "in 30 minutes ..."                     → once, now + 30m
+ *   "in 30 minutes ..." / "in 5 mins ..."   → once, now + N min
  *   "in 2 hours ..."                        → once, now + 2h
  */
 
@@ -71,7 +71,9 @@ function parseReminderNL(text) {
   const input = text.trim();
 
   // ── Pattern: "in X minutes" / "in X hours" ──────────────────────────────
-  const inRelMatch = input.match(/\bin\s+(\d+)\s+(minute|minutes|min|hour|hours|hr|hrs)\b/i);
+  const inRelMatch = input.match(
+    /\bin\s+(\d+)\s+(minute|minutes|mins?|hour|hours|hr|hrs)\b/i,
+  );
   if (inRelMatch) {
     const amount = parseInt(inRelMatch[1], 10);
     const unit = inRelMatch[2].toLowerCase();
@@ -81,7 +83,9 @@ function parseReminderNL(text) {
     } else {
       d.setMinutes(d.getMinutes() + amount);
     }
-    const content = extractContent(input, [/\bin\s+\d+\s+(minute|minutes|min|hour|hours|hr|hrs)\b/i]);
+    const content = extractContent(input, [
+      /\bin\s+\d+\s+(minute|minutes|mins?|hour|hours|hr|hrs)\b/i,
+    ]);
     return { content, scheduleType: 'once', scheduledTime: d.toISOString(), parsed: true };
   }
 

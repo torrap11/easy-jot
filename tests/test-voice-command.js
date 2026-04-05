@@ -37,9 +37,10 @@ function parseClassification(raw) {
 
   if (!parsed) return null;
 
-  const validModes = ['dictate', 'app_control', 'agent', 'trigger', 'scheduled'];
+  const validModes = ['dictate', 'app_control', 'agent', 'scheduled', 'error'];
   if (!validModes.includes(parsed.mode)) return null;
   if (!parsed.payload || typeof parsed.payload !== 'object') return null;
+  if (parsed.mode === 'error' && typeof parsed.payload.message !== 'string') return null;
 
   return parsed;
 }
@@ -85,38 +86,12 @@ test('parseClassification: agent mode', () => {
   assert.equal(result.payload.query, 'organize my notes into folders');
 });
 
-// ── MODE: trigger ─────────────────────────────────────────────────────────
-
-test('parseClassification: trigger mode — spotify_open', () => {
+test('parseClassification: legacy trigger mode is rejected', () => {
   const raw = JSON.stringify({
     mode: 'trigger',
-    payload: { trigger: 'spotify_open', content: "Listen to Kanye's new album", category: 'entertainment' },
+    payload: { trigger: 'spotify_open', content: 'x', category: 'entertainment' },
   });
-  const result = parseClassification(raw);
-  assert.ok(result);
-  assert.equal(result.mode, 'trigger');
-  assert.equal(result.payload.trigger, 'spotify_open');
-  assert.equal(result.payload.category, 'entertainment');
-});
-
-test('parseClassification: trigger mode — netflix_open', () => {
-  const raw = JSON.stringify({
-    mode: 'trigger',
-    payload: { trigger: 'netflix_open', content: 'Switch audio to Spanish', category: 'entertainment' },
-  });
-  const result = parseClassification(raw);
-  assert.ok(result);
-  assert.equal(result.payload.trigger, 'netflix_open');
-});
-
-test('parseClassification: trigger mode — work_start', () => {
-  const raw = JSON.stringify({
-    mode: 'trigger',
-    payload: { trigger: 'work_start', content: 'Review my priorities', category: 'work' },
-  });
-  const result = parseClassification(raw);
-  assert.ok(result);
-  assert.equal(result.payload.trigger, 'work_start');
+  assert.equal(parseClassification(raw), null);
 });
 
 // ── MODE: scheduled ───────────────────────────────────────────────────────
@@ -188,14 +163,21 @@ test('parseClassification: returns null for empty string', () => {
 
 // ── validModes exhaustive check ───────────────────────────────────────────
 
-test('all 5 valid modes are accepted', () => {
-  const modes = ['dictate', 'app_control', 'agent', 'trigger', 'scheduled'];
+test('all standard modes except error use generic payload', () => {
+  const modes = ['dictate', 'app_control', 'agent', 'scheduled'];
   for (const mode of modes) {
     const raw = JSON.stringify({ mode, payload: { test: true } });
     const result = parseClassification(raw);
     assert.ok(result, `Mode "${mode}" should be valid`);
     assert.equal(result.mode, mode);
   }
+});
+
+test('parseClassification: error mode requires message string', () => {
+  const ok = JSON.stringify({ mode: 'error', payload: { message: 'LLM down' } });
+  assert.equal(parseClassification(ok).mode, 'error');
+  const bad = JSON.stringify({ mode: 'error', payload: { code: 1 } });
+  assert.equal(parseClassification(bad), null);
 });
 
 test('Cmd+Shift+J mode is NOT a valid mode (removed)', () => {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Jot — Voice Memory Agent</title>
+  <title>Jot</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -32,14 +32,6 @@
       <button id="agent-send-btn">Send</button>
     </div>
 
-    <!-- Demo trigger buttons (context simulation for hackathon demo) -->
-    <div id="trigger-demo">
-      <div id="trigger-demo-label">Simulate context trigger:</div>
-      <div id="trigger-demo-buttons">
-        <button class="trigger-btn" data-trigger="netflix_open">📺 Netflix</button>
-        <button class="trigger-btn" data-trigger="spotify_open">🎵 Spotify</button>
-      </div>
-    </div>
   </div>
 
   <!-- Main pane (right side, always visible) -->
@@ -47,7 +39,7 @@
     <div id="titlebar">
       <span id="title">Jot</span>
       <div id="titlebar-actions">
-        <button id="voice-btn" title="Record voice memory (Cmd+Shift+J)">🎙️</button>
+        <button id="voice-btn" title="Speak a jot (same as Cmd+M)">🎙️</button>
         <button id="folder-btn" title="Organize folders">📁</button>
         <button id="image-btn" title="Add image">📷</button>
         <button id="new-btn" title="New jot">+</button>
@@ -77,13 +69,13 @@
           <span class="stt-badge"></span>
         </div>
         <div id="voice-review-actions">
-          <button id="voice-save-btn">Save Memory</button>
+          <button id="voice-save-btn">Save jot</button>
           <button id="voice-dismiss-btn">Dismiss</button>
         </div>
       </div>
       <!-- State: success -->
       <div id="voice-state-success" class="hidden">
-        <span>✅ Memory saved!</span>
+        <span>✅ Jot saved!</span>
       </div>
       <!-- State: error -->
       <div id="voice-state-error" class="hidden">
@@ -92,7 +84,7 @@
       </div>
     </div>
 
-    <!-- Universal Voice Command bar (Cmd+M) — dictate / app control / agent -->
+    <!-- Voice bar (Cmd+M / mic): one flow; app classifies into jots internally -->
     <div id="voice-cmd-bar" class="hidden">
       <!-- State: recording -->
       <div id="vcmd-state-recording">

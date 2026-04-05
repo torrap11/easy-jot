@@ -6,6 +6,8 @@ const path = require('path');
 const fs   = require('fs');
 const keybinds = require('./keybinds');
 
+const IMAGE_MAX_BYTES = 2 * 1024 * 1024; // BUG-6: 2 MB limit for image notes
+
 let win;
 
 function createWindow() {
@@ -57,19 +59,21 @@ function sendToggleVoiceCommand() {
   }
 }
 
-
 app.whenReady().then(() => {
+  // BUG-10: dock.hide() must be called after app is ready
+  if (app.dock) app.dock.hide();
+
   const db          = require('./database');
   const llm         = require('./llm');
   const executor    = require('./intelligence/executor');
   const voice       = require('./voice');
   const tts         = require('./tts');
-  const { parseIntent }                             = require('./intentParser');
   const { normalizeTrigger, getTriggerLabel, getTriggerIcon, getTriggerKeywords } = require('./triggerEngine');
   const { getConfig }                               = require('./config');
   const { startScheduler, fireById }                = require('./scheduler');
   const { parseReminderNL }                         = require('./reminderParser');
   const { classifyVoiceCommand }                    = require('./voiceCommand');
+  const { startWatcher }                            = require('./workflowWatcher');
 
   createWindow();
 
@@ -90,6 +94,48 @@ app.whenReady().then(() => {
   globalShortcut.register('Command+E', toggleWindow);
   globalShortcut.register('Command+M', sendToggleVoiceCommand);
 
+  // ── Context surface pipeline (workflow watcher only) ────────────────────
+  // Resurfaces **notes** whose text matches keywords for this screen/context.
+  // No separate "intent memory" rows — everything is a normal note.
+  // source: 'auto' (watcher) | 'manual' (unused; kept for API shape)
+  async function runContextSurface(triggerInput, source = 'auto', appName = null) {
+    const triggerId = normalizeTrigger(triggerInput);
+    const label     = getTriggerLabel(triggerId);
+    const icon      = getTriggerIcon(triggerId);
+
+    const keywords = getTriggerKeywords(triggerId);
+    const matchesKeywords = (text) => keywords.some(kw => text.toLowerCase().includes(kw));
+    const noteMatches = db.getAllNotes()
+      .filter(n => !n.content.startsWith('data:image/') && matchesKeywords(n.content))
+      .filter(n => source === 'manual' || db.noteEligibleForAutoContextSurface(n))
+      .map(n => ({ ...n, trigger: triggerId, category: 'note', jotType: 'note' }));
+
+    const memories = noteMatches;
+
+    let audioData = null;
+    if (getConfig().speakTriggerMemories) {
+      try {
+        const wavBuf = await tts.speakTriggerReadout(label, memories);
+        if (wavBuf) {
+          audioData = wavBuf.buffer.slice(wavBuf.byteOffset, wavBuf.byteOffset + wavBuf.byteLength);
+        }
+      } catch (ttsErr) {
+        console.warn('[tts] trigger readout failed:', ttsErr.message);
+      }
+    }
+
+    const payload = { trigger: triggerId, label, icon, memories, audioData, source, appName };
+
+    // Push to renderer only when there are matching notes (no empty popups)
+    if (win && !win.isDestroyed() && memories.length > 0) {
+      const channel = source === 'auto' ? 'workflow-trigger' : 'trigger-result';
+      win.webContents.send(channel, payload);
+      if (!win.isVisible()) { win.show(); win.focus(); }
+    }
+
+    return payload;
+  }
+
   // ── Note & folder handlers ──────────────────────────────────────────────
   ipcMain.handle('get-notes',          ()                     => db.getAllNotes());
   ipcMain.handle('create-note',        (_e, content)          => db.createNote(content));
@@ -103,32 +149,26 @@ app.whenReady().then(() => {
   ipcMain.handle('get-notes-by-folder',(_e, folderId)         => db.getNotesByFolder(folderId));
 
   // ── Agent handlers ──────────────────────────────────────────────────────
-  const AGENT_SYSTEM_PROMPT =
-    'You are Jot Agent, an AI assistant embedded in a voice-memory sticky-note app. ' +
-    'Help the user understand, search, and act on their notes. ' +
-    'You can also research topics online using the web_search action. ' +
-    'Be concise and actionable. When referencing a note, use [Note ID] format.';
-
-  ipcMain.handle('intelligence-query', async (_e, { userMessage, notes }) => {
-    try {
-      return { response: await llm.callLLM(AGENT_SYSTEM_PROMPT, userMessage, notes) };
-    } catch (err) { return { error: err.message }; }
-  });
+  // BUG-11: intelligence-query handler removed (dead code — renderer uses structured output)
 
   ipcMain.handle('intelligence-execute', async (_e, actions) => {
     return executor.executeActions(actions, db);
   });
 
+  // Structured output: notes + reminders only (no separate context-memory table)
   ipcMain.handle('intelligence-query-structured', async (_e, { userMessage, notes }) => {
     try {
-      return { actions: await llm.callLLMWithStructuredOutput(userMessage, notes) };
-    } catch (err) { return { error: err.message }; }
+      const reminders = db.getAllScheduledReminders();
+      const actions   = await llm.callLLMWithStructuredOutput(userMessage, notes, reminders);
+      return { actions };
+    } catch (err) {
+      return { error: llm.describeLLMError(err, getConfig()) };
+    }
   });
 
   ipcMain.handle('intelligence-query-help', (_e, { userMessage }) => {
     try {
       const all = [...keybinds.global, ...keybinds.inApp];
-      // Find shortcuts relevant to the query (keyword match)
       const words = (userMessage || '').toLowerCase().split(/\s+/).filter(w => w.length > 2);
       const matches = words.length
         ? all.filter(s => words.some(w => s.action.toLowerCase().includes(w) || s.keys.toLowerCase().includes(w)))
@@ -160,15 +200,19 @@ app.whenReady().then(() => {
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     const fp  = result.filePaths[0];
+    const buf = fs.readFileSync(fp);
+    // BUG-6: reject images larger than 2 MB before base64 encoding
+    if (buf.length > IMAGE_MAX_BYTES) {
+      return { error: `Image too large (${(buf.length / 1024 / 1024).toFixed(1)} MB). Maximum is 2 MB.` };
+    }
     const ext = path.extname(fp).toLowerCase().slice(1);
     const mime = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[ext] || 'image/png';
-    const b64  = fs.readFileSync(fp).toString('base64');
+    const b64  = buf.toString('base64');
     return db.createNote(`data:${mime};base64,${b64}`);
   });
 
-  // ── Voice & Intent Memory ───────────────────────────────────────────────
+  // ── Voice (transcription + Cmd+M classifier) ────────────────────────────
 
-  // Transcribe raw audio buffer from renderer's MediaRecorder
   ipcMain.handle('transcribe-audio', async (_e, arrayBuffer) => {
     try {
       const buf = Buffer.from(arrayBuffer);
@@ -179,7 +223,6 @@ app.whenReady().then(() => {
     }
   });
 
-  // Classify a transcript into { mode, payload } for Cmd+M universal voice command
   ipcMain.handle('classify-voice-command', async (_e, transcript) => {
     try {
       const classification = await classifyVoiceCommand(transcript);
@@ -189,81 +232,13 @@ app.whenReady().then(() => {
     }
   });
 
-  // Parse transcript text into structured intent
-  ipcMain.handle('parse-intent', async (_e, transcript) => {
-    try {
-      return { intent: await parseIntent(transcript) };
-    } catch (err) {
-      return { error: err.message };
-    }
+  ipcMain.handle('snooze-context-note', (_e, id, minutes) => {
+    try { db.snoozeNoteContextSurface(id, minutes || 30); return { ok: true }; }
+    catch (err) { return { error: err.message }; }
   });
 
-  // Persist intent memory + optionally generate TTS confirmation
-  ipcMain.handle('save-intent-memory', async (_e, { content, trigger, category }) => {
-    try {
-      const mem = db.createIntentMemory({ content, trigger, category });
-
-      // TTS confirmation (non-blocking – if it fails, the save still succeeds)
-      let audioData = null;
-      try {
-        const wavBuf = await tts.speakSaveConfirmation({ trigger, content });
-        if (wavBuf) audioData = wavBuf.buffer.slice(wavBuf.byteOffset, wavBuf.byteOffset + wavBuf.byteLength);
-      } catch (ttsErr) {
-        console.warn('[tts] save confirmation failed:', ttsErr.message);
-      }
-
-      return { memory: mem, audioData };
-    } catch (err) {
-      return { error: err.message };
-    }
-  });
-
-  // Simulate a context trigger → return matching memories + TTS read-out
-  ipcMain.handle('simulate-trigger', async (_e, triggerInput) => {
-    try {
-      const triggerId = normalizeTrigger(triggerInput);
-      const label     = getTriggerLabel(triggerId);
-      const icon      = getTriggerIcon(triggerId);
-
-      // Exact trigger-tag match
-      const exactMemories = db.getIntentMemoriesByTrigger(triggerId);
-      const exactIds = new Set(exactMemories.map(m => m.id));
-
-      // Content-based fallback: any jot whose content matches semantic keywords for this trigger
-      const keywords = getTriggerKeywords(triggerId);
-      const matchesKeywords = (text) => keywords.some(kw => text.toLowerCase().includes(kw));
-      const contentMemories = db.getAllIntentMemories()
-        .filter(m => !exactIds.has(m.id) && matchesKeywords(m.content));
-      const noteMatches = db.getAllNotes()
-        .filter(n => !n.content.startsWith('data:image/') && matchesKeywords(n.content))
-        .map(n => ({ ...n, trigger: triggerId, category: 'note' }));
-
-      const memories = [...exactMemories, ...contentMemories, ...noteMatches];
-
-      // TTS read-out (optional)
-      let audioData = null;
-      try {
-        const wavBuf = await tts.speakTriggerReadout(label, memories);
-        if (wavBuf) audioData = wavBuf.buffer.slice(wavBuf.byteOffset, wavBuf.byteOffset + wavBuf.byteLength);
-      } catch (ttsErr) {
-        console.warn('[tts] trigger readout failed:', ttsErr.message);
-      }
-
-      return { trigger: triggerId, label, icon, memories, audioData };
-    } catch (err) {
-      return { error: err.message };
-    }
-  });
-
-  // Return all stored intent memories
-  ipcMain.handle('get-intent-memories', () => {
-    try { return db.getAllIntentMemories(); }
-    catch { return []; }
-  });
-
-  // Delete a single intent memory
-  ipcMain.handle('delete-intent-memory', (_e, id) => {
-    try { db.deleteIntentMemory(id); return { ok: true }; }
+  ipcMain.handle('dismiss-context-note', (_e, id) => {
+    try { db.markNoteContextSurfaceDone(id); return { ok: true }; }
     catch (err) { return { error: err.message }; }
   });
 
@@ -271,12 +246,14 @@ app.whenReady().then(() => {
   ipcMain.handle('get-config-status', () => {
     const cfg = getConfig();
     return {
-      hasOpenAI:    !!cfg.openaiApiKey,
-      hasSmallest:  !!cfg.smallestAiKey,
-      useOllama:    cfg.useOllama,
-      model:        cfg.model,
-      sttProvider:  cfg.smallestAiKey ? 'pulse' : cfg.openaiApiKey ? 'whisper' : null,
-      ttsEnabled:   !!cfg.smallestAiKey,
+      hasOpenAI:              !!cfg.openaiApiKey,
+      hasSmallest:            !!cfg.smallestAiKey,
+      useOllama:              cfg.useOllama,
+      model:                  cfg.model,
+      sttProvider:            cfg.smallestAiKey ? 'pulse' : null,
+      ttsEnabled:             !!cfg.smallestAiKey,
+      workflowWatcherEnabled: cfg.workflowWatcherEnabled,
+      speakTriggerMemories:   cfg.speakTriggerMemories,
     };
   });
 
@@ -316,7 +293,6 @@ app.whenReady().then(() => {
     }
   });
 
-  // Manual test fire (for "Test ▶" button in UI)
   ipcMain.handle('fire-reminder', async (_e, id) => {
     try {
       const audioData = await fireById(id, db, tts);
@@ -338,8 +314,10 @@ app.whenReady().then(() => {
     }
   });
 
+  // ── Workflow watcher ────────────────────────────────────────────────────
+  startWatcher({ runTrigger: runContextSurface, getConfig });
+
 });
 
 app.on('will-quit', () => { globalShortcut.unregisterAll(); });
 app.on('window-all-closed', (e) => { e.preventDefault(); });
-if (app.dock) app.dock.hide();

@@ -34,6 +34,12 @@ function getDb() {
   if (!cols.includes('folder_id')) {
     db.exec('ALTER TABLE notes ADD COLUMN folder_id INTEGER REFERENCES folders(id)');
   }
+  if (!cols.includes('context_snoozed_until')) {
+    db.exec('ALTER TABLE notes ADD COLUMN context_snoozed_until TEXT');
+  }
+  if (!cols.includes('context_no_auto_surface')) {
+    db.exec('ALTER TABLE notes ADD COLUMN context_no_auto_surface INTEGER NOT NULL DEFAULT 0');
+  }
 
   // Intent memories table for voice-triggered context memory
   db.exec(`
@@ -47,6 +53,17 @@ function getDb() {
       embedding  TEXT
     )
   `);
+  // Safe migrations: add lifecycle columns for snooze/done/cooldown
+  const memoryCols = db.pragma('table_info(intent_memories)').map(c => c.name);
+  if (!memoryCols.includes('snoozed_until')) {
+    db.exec('ALTER TABLE intent_memories ADD COLUMN snoozed_until TEXT');
+  }
+  if (!memoryCols.includes('done')) {
+    db.exec('ALTER TABLE intent_memories ADD COLUMN done INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!memoryCols.includes('last_auto_shown_at')) {
+    db.exec('ALTER TABLE intent_memories ADD COLUMN last_auto_shown_at TEXT');
+  }
 
   // Scheduled reminders table for time-based spoken reminders
   db.exec(`
@@ -87,6 +104,31 @@ function createNote(content = '') {
 function updateNote(id, content) {
   getDb().prepare("UPDATE notes SET content = ?, updated_at = datetime('now') WHERE id = ?").run(content, id);
   return getDb().prepare('SELECT * FROM notes WHERE id = ?').get(id);
+}
+
+/** Snooze a note from workflow auto-surface (keyword matches) for N minutes. */
+function snoozeNoteContextSurface(id, minutes = 30) {
+  const until = new Date(Date.now() + Number(minutes) * 60_000).toISOString();
+  getDb().prepare('UPDATE notes SET context_snoozed_until = ?, updated_at = datetime(\'now\') WHERE id = ?').run(until, id);
+}
+
+/** Stop auto-surfacing this note on context triggers (manual preview still shows it). */
+function markNoteContextSurfaceDone(id) {
+  getDb()
+    .prepare(
+      "UPDATE notes SET context_no_auto_surface = 1, context_snoozed_until = NULL, updated_at = datetime('now') WHERE id = ?",
+    )
+    .run(id);
+}
+
+/** True if this note may appear on automatic workflow triggers. */
+function noteEligibleForAutoContextSurface(n) {
+  if (n.context_no_auto_surface) return false;
+  if (n.context_snoozed_until) {
+    const until = new Date(n.context_snoozed_until);
+    if (!Number.isNaN(until.getTime()) && until > new Date()) return false;
+  }
+  return true;
 }
 
 function deleteNote(id) {
@@ -173,6 +215,37 @@ function deleteIntentMemory(id) {
   getDb().prepare('DELETE FROM intent_memories WHERE id = ?').run(id);
 }
 
+/**
+ * Return memories for a trigger filtered for auto-surface:
+ * excludes done=1 and currently snoozed memories.
+ */
+function getIntentMemoriesByTriggerFiltered(trigger) {
+  return getDb()
+    .prepare(`SELECT * FROM intent_memories
+              WHERE trigger = ?
+                AND (done IS NULL OR done = 0)
+                AND (snoozed_until IS NULL OR snoozed_until <= datetime('now'))
+              ORDER BY created_at DESC`)
+    .all(trigger);
+}
+
+/** Snooze a memory: set snoozed_until = now + N minutes. */
+function snoozeMemory(id, minutes = 30) {
+  getDb()
+    .prepare(`UPDATE intent_memories SET snoozed_until = datetime('now', '+${Number(minutes)} minutes') WHERE id = ?`)
+    .run(id);
+}
+
+/** Permanently suppress a memory from auto-surface. */
+function markMemoryDone(id) {
+  getDb().prepare('UPDATE intent_memories SET done = 1 WHERE id = ?').run(id);
+}
+
+/** Record that this memory was auto-surfaced (for cooldown tracking). */
+function markMemoryAutoShown(id) {
+  getDb().prepare("UPDATE intent_memories SET last_auto_shown_at = datetime('now') WHERE id = ?").run(id);
+}
+
 // ── Scheduled Reminder helpers ─────────────────────────────────────────────
 
 /**
@@ -221,9 +294,11 @@ function activateReminder(id) {
 
 module.exports = {
   getAllNotes, createNote, updateNote, deleteNote, restoreNote,
+  snoozeNoteContextSurface, markNoteContextSurfaceDone, noteEligibleForAutoContextSurface,
   createFolder, updateFolder, getAllFolders, updateNoteFolder, getNotesByFolder,
-  createIntentMemory, getIntentMemoriesByTrigger, searchIntentMemories,
-  getAllIntentMemories, deleteIntentMemory,
+  createIntentMemory, getIntentMemoriesByTrigger, getIntentMemoriesByTriggerFiltered,
+  searchIntentMemories, getAllIntentMemories, deleteIntentMemory,
+  snoozeMemory, markMemoryDone, markMemoryAutoShown,
   createScheduledReminder, getActiveReminders, getAllScheduledReminders,
   deleteScheduledReminder, markReminderTriggered, deactivateReminder, activateReminder,
 };

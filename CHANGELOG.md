@@ -8,6 +8,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [2.0.0] — 2026-04-05
+
+**v2 timeline:** Development on `main` uses **2.x**. Branch **`v1`** and tag **`v1.0.0`** mark the frozen **1.x** line for maintenance and backports.
+
+### Fixed
+- **BUG-3**: Race condition in `showList()` — `currentNote` captured in `savedNote` at the start of the function; only nulled after the async LLM call if the user has not started a new note in the meantime. Prevents a new note from being orphaned when Back is pressed while `parseIntent` is in flight.
+
+### Added
+- `LICENSE` file (ISC) matching `package.json` license field.
+- `npm run smoke` — fast pure-JS test suite (no native module rebuild); covers executor, keybinds, reminder parser, scheduler logic, trigger engine, voice command, voice deterministic, context map.
+- `.gitignore` entries for `.env`, `.env.*`, `*.pem`, `*.p12`, `*.key`, `electron-builder.env`, `deep-research-report*.md`, `agent-transcripts/`.
+- Config status bar now shows actionable setup hint (config path + env var names) when no API keys are configured.
+
+### Changed
+- **Voice vs LLM keys**: Speech-to-text uses **Smallest AI Pulse only** (`smallestAiKey`). `openaiApiKey` is for the **GPT** agent and intent parsing only (Whisper STT fallback removed). Env alias `EASY_JOT_SMALLEST_AI_KEY` supported.
+- **Workflow watcher**: **ChatGPT Atlas** (`com.openai.atlas`) supported for active-tab URL → context triggers; see `docs/macos-workflow-setup.md` for macOS Accessibility + Automation.
+- `docs/known-issues.md` reorganized: all fixed bugs (BUG-1 through BUG-12) moved to a **Fixed Bugs** section; Open Bugs section is now empty at v1.0.
+
 ### Added
 - `voice.js` — Smallest AI Pulse STT as primary speech-to-text provider; OpenAI Whisper as fallback
 - `tts.js` — Smallest AI Lightning TTS; WAV returned to renderer for Web Audio API playback

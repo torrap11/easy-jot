@@ -20,28 +20,20 @@ contextBridge.exposeInMainWorld('api', {
   getNotesByFolder: (folderId)       => ipcRenderer.invoke('get-notes-by-folder', folderId),
 
   // ── AI Agent ───────────────────────────────────────────────────────────
-  intelligenceQuery:           (msg, notes)  => ipcRenderer.invoke('intelligence-query', { userMessage: msg, notes }),
+  // intelligenceQuery removed (BUG-11: dead handler)
   intelligenceQueryStructured: (msg, notes)  => ipcRenderer.invoke('intelligence-query-structured', { userMessage: msg, notes }),
   intelligenceExecute:         (actions)     => ipcRenderer.invoke('intelligence-execute', actions),
   intelligenceQueryHelp:       (msg)         => ipcRenderer.invoke('intelligence-query-help', { userMessage: msg }),
 
-  // ── Voice & Intent Memory ──────────────────────────────────────────────
-  // Transcribe raw audio ArrayBuffer from MediaRecorder
+  // ── Voice (STT) ───────────────────────────────────────────────────────
   transcribeAudio:    (ab)      => ipcRenderer.invoke('transcribe-audio', ab),
-  // Parse transcript text → structured intent object
-  parseIntent:        (text)    => ipcRenderer.invoke('parse-intent', text),
-  // Persist intent + returns optional TTS audioData (ArrayBuffer or null)
-  saveIntentMemory:   (intent)  => ipcRenderer.invoke('save-intent-memory', intent),
-  // Simulate context trigger → returns memories + optional TTS audioData
-  simulateTrigger:    (trigger) => ipcRenderer.invoke('simulate-trigger', trigger),
-  // All stored intent memories
-  getIntentMemories:  ()        => ipcRenderer.invoke('get-intent-memories'),
-  // Delete one intent memory
-  deleteIntentMemory: (id)      => ipcRenderer.invoke('delete-intent-memory', id),
 
   // ── Universal Voice Command (Cmd+M) ───────────────────────────────────
-  // Classify a transcript into { mode, payload } — mode: 'dictate'|'app_control'|'agent'
   classifyVoiceCommand: (transcript) => ipcRenderer.invoke('classify-voice-command', transcript),
+
+  // ── Context-surfaced notes (overlay actions) ──────────────────────────
+  snoozeContextNote: (id, minutes) => ipcRenderer.invoke('snooze-context-note', id, minutes),
+  dismissContextNote: (id)         => ipcRenderer.invoke('dismiss-context-note', id),
 
   // ── Config status (no secrets exposed) ────────────────────────────────
   getConfigStatus: () => ipcRenderer.invoke('get-config-status'),
@@ -54,10 +46,12 @@ contextBridge.exposeInMainWorld('api', {
   fireReminder:            (id)    => ipcRenderer.invoke('fire-reminder', id),
 
   // ── IPC events from main process ──────────────────────────────────────
-  // Voice capture toggle sent by the global hotkey (Cmd+Shift+J)
+  // Legacy: voice-capture IPC (no global shortcut registered in main)
   onToggleVoiceCapture: (cb) => ipcRenderer.on('toggle-voice-capture', () => cb()),
   // Universal voice command toggle sent by the global hotkey (Cmd+M)
   onToggleVoiceCommand: (cb) => ipcRenderer.on('toggle-voice-command', () => cb()),
+  // Workflow watcher: automatic trigger from frontmost app detection
+  onWorkflowTrigger: (cb) => ipcRenderer.on('workflow-trigger', (_e, data) => cb(data)),
   // Reminder due (pushed by scheduler)
   onReminderDue: (cb) => ipcRenderer.on('reminder-due', (_e, data) => cb(data)),
 });

@@ -184,3 +184,50 @@ test('deleteScheduledReminder: removes it', () => {
   const all = db.getAllScheduledReminders();
   assert.ok(!all.find(r => r.id === rem.id));
 });
+
+// ── Intent memory lifecycle (snooze / done / cooldown) ────────────────────
+
+test('snoozeMemory: sets snoozed_until in the future', () => {
+  const mem = db.createIntentMemory({ content: 'snooze test', trigger: 'general' });
+  db.snoozeMemory(mem.id, 30);
+  const all = db.getAllIntentMemories();
+  const updated = all.find(m => m.id === mem.id);
+  assert.ok(updated.snoozed_until, 'snoozed_until should be set');
+  assert.ok(new Date(updated.snoozed_until) > new Date(), 'snoozed_until should be in the future');
+});
+
+test('markMemoryDone: sets done = 1', () => {
+  const mem = db.createIntentMemory({ content: 'done test', trigger: 'general' });
+  db.markMemoryDone(mem.id);
+  const all = db.getAllIntentMemories();
+  const updated = all.find(m => m.id === mem.id);
+  assert.equal(updated.done, 1);
+});
+
+test('markMemoryAutoShown: sets last_auto_shown_at', () => {
+  const mem = db.createIntentMemory({ content: 'shown test', trigger: 'general' });
+  db.markMemoryAutoShown(mem.id);
+  const all = db.getAllIntentMemories();
+  const updated = all.find(m => m.id === mem.id);
+  assert.ok(updated.last_auto_shown_at, 'last_auto_shown_at should be set');
+});
+
+test('getIntentMemoriesByTriggerFiltered: excludes done memories', () => {
+  const mem = db.createIntentMemory({ content: 'filtered done', trigger: 'netflix_open' });
+  db.markMemoryDone(mem.id);
+  const filtered = db.getIntentMemoriesByTriggerFiltered('netflix_open');
+  assert.ok(!filtered.find(m => m.id === mem.id), 'done memory should be excluded');
+});
+
+test('getIntentMemoriesByTriggerFiltered: excludes currently snoozed memories', () => {
+  const mem = db.createIntentMemory({ content: 'filtered snooze', trigger: 'spotify_open' });
+  db.snoozeMemory(mem.id, 60);
+  const filtered = db.getIntentMemoriesByTriggerFiltered('spotify_open');
+  assert.ok(!filtered.find(m => m.id === mem.id), 'snoozed memory should be excluded');
+});
+
+test('getIntentMemoriesByTriggerFiltered: includes non-done non-snoozed memories', () => {
+  const mem = db.createIntentMemory({ content: 'visible memory', trigger: 'work_start' });
+  const filtered = db.getIntentMemoriesByTriggerFiltered('work_start');
+  assert.ok(filtered.find(m => m.id === mem.id), 'visible memory should be included');
+});

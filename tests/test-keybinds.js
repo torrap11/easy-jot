@@ -25,7 +25,18 @@ test('Cmd+E is in global shortcuts (toggle window)', () => {
 test('Cmd+M is in global shortcuts (universal voice command)', () => {
   const entry = keybinds.global.find(s => s.keys === 'Cmd+M');
   assert.ok(entry, 'Cmd+M must be registered');
-  assert.ok(entry.action.toLowerCase().includes('voice'), 'Cmd+M action should mention voice');
+  assert.ok(
+    /\bspeak\b|\bjot\b|\bagent\b/i.test(entry.action),
+    'Cmd+M action should describe speak / jot / agent',
+  );
+});
+
+test('Cmd+Shift+N is NOT in any shortcut list (removed quick jot)', () => {
+  const all = [...keybinds.global, ...keybinds.inApp];
+  assert.ok(
+    !all.some(s => s.keys === 'Cmd+Shift+N'),
+    'Cmd+Shift+N should not be registered',
+  );
 });
 
 test('Cmd+Shift+J is NOT in any shortcut list (removed)', () => {

@@ -1,20 +1,69 @@
 {
   "name": "easy-jot",
-  "version": "1.0.0",
-  "description": "A minimal sticky-note desktop app triggered by a global hotkey",
+  "version": "2.0.0",
+  "description": "Jot — voice-first notes, context triggers, and scheduled reminders (Electron)",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "postinstall": "electron-rebuild",
-    "test": "npm rebuild better-sqlite3 && node --test tests/test-*.js; npx electron-rebuild -f -w better-sqlite3"
+    "test": "npm rebuild better-sqlite3 && node --test tests/test-*.js; npx electron-rebuild -f -w better-sqlite3",
+    "smoke": "node --test tests/test-executor.js tests/test-keybinds.js tests/test-reminder-parser.js tests/test-scheduler-logic.js tests/test-trigger-engine.js tests/test-voice-command.js tests/test-voice-deterministic.js tests/test-context-map.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --mac --publish never",
+    "dist:mac": "electron-builder --mac --publish never"
   },
   "keywords": [],
-  "author": "",
+  "author": "Chapter3",
   "license": "ISC",
+  "build": {
+    "publish": null,
+    "afterPack": "scripts/electron-after-pack.js",
+    "appId": "com.chapter3.jot",
+    "productName": "Jot",
+    "copyright": "Copyright © Chapter3",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!dist/**",
+      "!tests/**",
+      "!.git/**",
+      "!**/*.md",
+      "!deep-research-report*.md",
+      "!config.json",
+      "!agent-transcripts/**",
+      "!.cursor/**",
+      "!.claude/**",
+      "!scripts/**"
+    ],
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Jot uses the microphone for voice capture and voice commands."
+      }
+    },
+    "dmg": {
+      "title": "${productName} ${version}"
+    }
+  },
   "dependencies": {
-    "@electron/rebuild": "^4.0.3",
     "better-sqlite3": "^12.6.2",
-    "electron": "^40.4.1",
     "openai": "^6.22.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
+    "electron": "^40.4.1",
+    "electron-builder": "^26.0.12"
   }
 }

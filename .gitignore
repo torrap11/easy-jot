@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# electron-builder output
+dist/
+
 # macOS
 .DS_Store
 
@@ -13,8 +16,18 @@ node_modules/
 *.log
 npm-debug.log*
 
-# Secrets — never commit API keys
+# Secrets — never commit API keys or certificates
 config.json
+.env
+.env.*
+*.pem
+*.p12
+*.key
+electron-builder.env
+
+# Internal research / AI-session artifacts (not product docs)
+deep-research-report*.md
+agent-transcripts/
 
 # Editor / tool artifacts
 .claude/

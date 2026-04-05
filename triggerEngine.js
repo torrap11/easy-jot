@@ -10,16 +10,22 @@
 
 /** Canonical trigger IDs → human-readable labels */
 const TRIGGER_LABELS = {
-  netflix_open: 'Netflix',
-  spotify_open: 'Spotify',
-  general:      'General',
+  netflix_open:  'Netflix',
+  spotify_open:  'Spotify',
+  work_start:    'Work',
+  linkedin_open: 'LinkedIn',
+  gmail_open:    'Gmail',
+  general:       'General',
 };
 
 /** Trigger IDs → emoji icons for UI display */
 const TRIGGER_ICONS = {
-  netflix_open: '📺',
-  spotify_open: '🎵',
-  general:      '💡',
+  netflix_open:  '📺',
+  spotify_open:  '🎵',
+  work_start:    '🖥️',
+  linkedin_open: '💼',
+  gmail_open:    '📧',
+  general:       '💡',
 };
 
 /**
@@ -52,10 +58,11 @@ function normalizeTrigger(input) {
     if (label.toLowerCase() === s) return id;
   }
 
-  // Partial match on root word (e.g. "netflix" → "netflix_open")
+  // Partial match on root word with word boundaries (e.g. "netflix" → "netflix_open")
+  // BUG-8: use regex word boundary so "homework" doesn't match "work_start"
   for (const id of Object.keys(TRIGGER_LABELS)) {
     const root = id.split('_')[0];
-    if (s.includes(root)) return id;
+    if (new RegExp(`\\b${root}\\b`, 'i').test(s)) return id;
   }
 
   // Unknown trigger — return as-is for forward compatibility
@@ -68,9 +75,12 @@ function normalizeTrigger(input) {
  * e.g. "listen to spanish music" should match spotify_open via 'music'/'listen'.
  */
 const TRIGGER_KEYWORDS = {
-  spotify_open: ['spotify', 'music', 'song', 'playlist', 'listen', 'album', 'track', 'podcast', 'audio'],
-  netflix_open: ['netflix', 'watch', 'movie', 'show', 'episode', 'film', 'series', 'stream'],
-  general:      [],
+  spotify_open:  ['spotify', 'music', 'song', 'playlist', 'listen', 'album', 'track', 'podcast', 'audio'],
+  netflix_open:  ['netflix', 'watch', 'movie', 'show', 'episode', 'film', 'series', 'stream'],
+  work_start:    ['work', 'slack', 'vscode', 'xcode', 'teams', 'meeting', 'office', 'email'],
+  linkedin_open: ['linkedin', 'networking', 'recruiter', 'job', 'profile'],
+  gmail_open:    ['gmail', 'email', 'inbox', 'mail', 'message'],
+  general:       [],
 };
 
 /**

@@ -1,0 +1,11 @@
+{
+  "openaiApiKey": "sk-your-openai-key-for-gpt-agent",
+  "smallestAiKey": "your-smallest-ai-key-for-voice",
+  "model": "gpt-4o-mini",
+  "useOllama": false,
+  "workflowWatcherEnabled": true,
+  "speakTriggerMemories": false,
+  "ttsVoice": "emily",
+  "ttsSampleRate": 24000,
+  "sttLanguage": "en"
+}

@@ -3,7 +3,7 @@
  * test-executor.js
  * Tests: executeActions — valid/invalid types, search, create_note,
  *        create_folder, move_note_to_folder, organize_into_folders,
- *        web_search (mocked fetch).
+ *        web_search (mocked fetch), reminders.
  *
  * Uses a lightweight in-memory mock db (no SQLite, no electron required).
  */
@@ -14,10 +14,12 @@ const { executeActions } = require('../intelligence/executor');
 
 // ── In-memory mock db ─────────────────────────────────────────────────────
 
-let _notes   = [];
-let _folders = [];
-let _noteId  = 0;
-let _folderId = 0;
+let _notes     = [];
+let _folders   = [];
+let _reminders = [];
+let _noteId    = 0;
+let _folderId  = 0;
+let _remId     = 0;
 
 const mockDb = {
   getAllNotes:      () => [..._notes],
@@ -28,13 +30,22 @@ const mockDb = {
     const n = _notes.find(n => n.id === noteId);
     if (n) n.folder_id = folderId;
   },
+  // Reminders — deep-copy rows so snapshots aren't mutated by activate/deactivate
+  getAllScheduledReminders: () => _reminders.map(r => ({ ...r })),
+  deleteScheduledReminder:  (id) => { _reminders = _reminders.filter(r => r.id !== id); },
+  activateReminder:  (id) => { const r = _reminders.find(r => r.id === id); if (r) r.active = 1; },
+  deactivateReminder:(id) => { const r = _reminders.find(r => r.id === id); if (r) r.active = 0; },
+  // Test helpers (not on real db interface)
+  _addReminder:(content, active = 1) => { const r = { id: ++_remId, content, active, schedule_type: 'once', scheduled_time: '2099-01-01T10:00:00.000Z' }; _reminders.push(r); return r; },
 };
 
 before(() => {
-  _notes   = [];
-  _folders = [];
-  _noteId  = 0;
-  _folderId = 0;
+  _notes     = [];
+  _folders   = [];
+  _reminders = [];
+  _noteId    = 0;
+  _folderId  = 0;
+  _remId     = 0;
 });
 
 // ── Empty / no-op ─────────────────────────────────────────────────────────
@@ -235,4 +246,54 @@ test('multiple actions: mixed success and failure', async () => {
   assert.equal(r.results.length, 2);       // two successes
   assert.equal(r.errors.length,  1);       // one failure
   assert.equal(r.errors[0].type, 'bad_action');
+});
+
+// ── Scheduled reminder actions ────────────────────────────────────────────
+
+test('list_reminders: returns all reminders', async () => {
+  mockDb._addReminder('daily standup');
+  const r = await executeActions([
+    { type: 'list_reminders', payload: {} },
+  ], mockDb);
+  assert.equal(r.success, true);
+  assert.ok(r.results[0].result.count >= 1);
+});
+
+test('search_reminders: filters by content', async () => {
+  mockDb._addReminder('call the dentist at 3pm');
+  const r = await executeActions([
+    { type: 'search_reminders', payload: { query: 'dentist' } },
+  ], mockDb);
+  assert.equal(r.success, true);
+  assert.ok(r.results[0].result.reminders.some(r => r.content.includes('dentist')));
+});
+
+test('toggle_reminder: deactivates active reminder', async () => {
+  const rem = mockDb._addReminder('active reminder', 1);
+  const r = await executeActions([
+    { type: 'toggle_reminder', payload: { id: rem.id } },
+  ], mockDb);
+  assert.equal(r.success, true);
+  assert.equal(r.results[0].result.active, false);
+  const updated = mockDb.getAllScheduledReminders().find(r => r.id === rem.id);
+  assert.equal(updated.active, 0);
+});
+
+test('toggle_reminder: activates inactive reminder', async () => {
+  const rem = mockDb._addReminder('paused reminder', 0);
+  const r = await executeActions([
+    { type: 'toggle_reminder', payload: { id: rem.id } },
+  ], mockDb);
+  assert.equal(r.success, true);
+  assert.equal(r.results[0].result.active, true);
+});
+
+test('delete_reminder: removes by id', async () => {
+  const rem = mockDb._addReminder('reminder to delete');
+  const countBefore = mockDb.getAllScheduledReminders().length;
+  const r = await executeActions([
+    { type: 'delete_reminder', payload: { id: rem.id } },
+  ], mockDb);
+  assert.equal(r.success, true);
+  assert.equal(mockDb.getAllScheduledReminders().length, countBefore - 1);
 });

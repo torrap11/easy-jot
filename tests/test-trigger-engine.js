@@ -15,11 +15,21 @@ const {
 // ── Trigger registry ──────────────────────────────────────────────────────
 
 test('all expected triggers are defined', () => {
-  const expected = ['netflix_open', 'spotify_open', 'general'];
+  const expected = ['netflix_open', 'spotify_open', 'work_start', 'linkedin_open', 'gmail_open', 'general'];
   for (const id of expected) {
     assert.ok(TRIGGER_LABELS[id], `Missing label for ${id}`);
     assert.ok(TRIGGER_ICONS[id],  `Missing icon for ${id}`);
   }
+});
+
+test('work_start label is Work', () => {
+  assert.equal(getTriggerLabel('work_start'), 'Work');
+});
+
+test('linkedin_open and gmail_open are in ALL_TRIGGERS', () => {
+  assert.ok(ALL_TRIGGERS.includes('linkedin_open'));
+  assert.ok(ALL_TRIGGERS.includes('gmail_open'));
+  assert.ok(ALL_TRIGGERS.includes('work_start'));
 });
 
 test('spotify_open label is Spotify', () => {
@@ -66,4 +76,23 @@ test('getTriggerLabel falls back to raw ID for unknown triggers', () => {
 
 test('getTriggerIcon falls back to 💡 for unknown triggers', () => {
   assert.equal(getTriggerIcon('some_unknown'), '💡');
+});
+
+// ── BUG-8: word boundary fix ──────────────────────────────────────────────
+
+test('BUG-8: "homework" should NOT match work_start', () => {
+  // Before the fix, "homework".includes("work") → true → returned work_start
+  assert.notEqual(normalizeTrigger('homework'), 'work_start');
+});
+
+test('BUG-8: "working" should NOT match work_start', () => {
+  assert.notEqual(normalizeTrigger('working on netflix'), 'work_start');
+});
+
+test('BUG-8: "work" (exact word) SHOULD match work_start', () => {
+  assert.equal(normalizeTrigger('work'), 'work_start');
+});
+
+test('BUG-8: "networks" should NOT match netflix_open', () => {
+  assert.notEqual(normalizeTrigger('social networks'), 'netflix_open');
 });
