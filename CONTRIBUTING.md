@@ -92,6 +92,76 @@ npm test
 
 **`npm test`** additionally runs `test-database` which requires `better-sqlite3` to be compiled for the current Electron ABI. If `npm test` fails with a native module error, run `xcode-select --install` and then `npm install` (which triggers `electron-rebuild` via the `postinstall` hook). Tests that require the native module will not pass in a CI environment without a Xcode toolchain.
 
+---
+
+## Easy Jot v2 (easy-jot/)
+
+The `easy-jot/` subdirectory is a separate, standalone Electron app with its own `package.json`, TypeScript source, React renderer, and SQLite database.
+
+### Dev setup
+
+```bash
+cd easy-jot
+npm install          # rebuilds better-sqlite3 for current Electron ABI (postinstall)
+export OPENAI_API_KEY=sk-...   # or copy .env.example → .env
+npm run dev          # Vite dev server + esbuild watch + Electron
+```
+
+### Project structure
+
+| File | Purpose |
+|---|---|
+| `main/index.ts` | Main process — windows, shortcuts, IPC, context poll, reminder loop |
+| `preload/index.ts` | `contextBridge` → `window.memory` API |
+| `db/index.ts` | SQLite — `entries` table, `remind_at` migration, CRUD |
+| `services/embedding.ts` | OpenAI `text-embedding-3-small` → `number[]` |
+| `services/classifier.ts` | Rule-based type tagging + reminder keyword extraction |
+| `services/contextMatcher.ts` | Semantic match of app-context phrase vs. stored embeddings |
+| `utils/activeApp.ts` | macOS: osascript frontmost app name |
+| `utils/similarity.ts` | `cosineSimilarity(a, b)` |
+| `renderer/src/App.tsx` | Hash router: `#capture` / `#search` / `#overlay` |
+| `renderer/src/Capture.tsx` | Textarea capture UI |
+| `renderer/src/Search.tsx` | Semantic search results UI |
+| `renderer/src/Overlay.tsx` | Transparent context reminder card |
+
+### Architecture principles
+
+- **Same Electron security model**: `contextIsolation: true`, `nodeIntegration: false` on all three windows. All Node.js work in `main/index.ts`.
+- **ESM main, CJS preload**: `main/index.ts` compiles to ESM (`dist-electron/main.js`); `preload/index.ts` compiles to CJS (`dist-electron/preload.cjs`) because Electron's preload must be CJS.
+- **Hash-based window routing**: one renderer bundle handles all three windows via `window.location.hash` (`#capture`, `#search`, `#overlay`).
+- **Save never blocks the UI**: `insertEntry()` is synchronous SQLite; `scheduleEmbedding()` is a detached async call. The capture window hides before the network round-trip.
+- **TypeScript throughout**: strict mode, ESNext target, `@types/better-sqlite3` for DB, `vite-env.d.ts` for `window.memory` types.
+
+### Build commands
+
+| Command | What it does |
+|---|---|
+| `npm run build:electron` | esbuild compile of `main/index.ts` + `preload/index.ts` only |
+| `npm run build:renderer` | Vite production build of renderer |
+| `npm run build` | Both of the above in sequence |
+| `npm run start` | Run the production build |
+| `npm run pack` | `build` then `electron-builder --dir` (no DMG) |
+
+### Adding a feature (IPC pattern)
+
+1. Add an `ipcMain.handle('channel:name', ...)` handler in `main/index.ts`
+2. Expose it in `preload/index.ts` via `contextBridge.exposeInMainWorld('memory', { ... })`
+3. Add the TypeScript signature to the `window.memory` interface in `renderer/src/vite-env.d.ts`
+4. Call it from a React component via `window.memory.methodName(...)`
+
+### Testing
+
+There are no automated tests for v2 yet. Manual smoke test:
+
+1. `npm run dev`
+2. Press `Cmd+E` → type something → Enter (should save and close)
+3. Wait ~2 s for embedding → press `Cmd+K` → type a related query → confirm results appear
+4. Type an entry with *tomorrow* in it → confirm overlay fires ~60 s later
+
+The root `npm run smoke` covers v1 only.
+
+---
+
 ## Commit Conventions
 
 ```

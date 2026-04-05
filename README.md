@@ -8,6 +8,15 @@ Built with Electron, SQLite, Smallest AI Waves (Pulse STT + Lightning TTS), and 
 
 ---
 
+## Two apps in this repo
+
+| App | Directory | Description |
+|---|---|---|
+| **Jot** (v1) | *(repo root)* | Voice-first sticky notes, context triggers, scheduled reminders, TTS — documented below |
+| **Easy Jot** (v2) | [`easy-jot/`](easy-jot/) | Semantic memory OS — React + Vite + TypeScript + OpenAI embeddings. See [`easy-jot/README.md`](easy-jot/README.md) |
+
+---
+
 ## Quick Start
 
 **Requirements**: Node.js 18+, macOS (Windows/Linux: Cmd → Ctrl shortcuts)

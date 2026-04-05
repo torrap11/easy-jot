@@ -35,38 +35,29 @@ Voice capture → STT → LLM intent extraction → context trigger memories →
 ### M2 — Scheduled Reminders (done)
 Natural-language time parsing ("at 10 PM", "every day at 9 AM", "in 30 minutes"). 30s scheduler poll. TTS reminder notification. Auto-conversion of note text to reminder on save.
 
-### M3 — Real Context Detection
-Replace the manual trigger buttons with automatic detection.
+### M3 — Real Context Detection ✓ done in v2
 
-**Option A — macOS app watcher** (lowest friction to ship)
-- Use `NSWorkspace` notifications via a native addon or periodic polling of `lsappinfo` / `osascript`
-- When frontmost app changes to Netflix/LinkedIn/etc., fire the matching trigger automatically
-- No browser required; works for any native app
+**Shipped in `easy-jot/`** — `utils/activeApp.ts` polls the macOS frontmost app every 2 s via osascript. `services/contextMatcher.ts` maps the app name to a semantic context phrase, generates an embedding, and scores it against stored entries (cosine similarity ≥ 0.68, age ≤ 72 h, limit 2). A match triggers a transparent overlay (top-right, 6 s, 5-min re-surface debounce).
+
+Original options for reference:
+
+**Option A — macOS app watcher** (shipped)
+- Periodic osascript poll of frontmost process name (`utils/activeApp.ts`, `main/index.ts`)
+- App name mapped to context phrase (`services/contextMatcher.ts:activeAppToContextPhrase`)
 
 **Option B — Browser extension**
-- Chrome/Safari extension detects active tab URL/domain
-- Sends event to Electron via `chrome.runtime.connectNative` (native messaging)
-- Enables web-based triggers (netflix.com, mail.google.com, linkedin.com/in/...)
-- Same trigger event format: `{ type: 'domain', value: 'netflix.com' }`
+- Not yet implemented. Would use `chrome.runtime.connectNative` → native messaging → same context surface pipeline
 
 **Option C — Calendar integration**
-- Poll Google/Apple calendar API for upcoming/started meetings
-- Fire trigger on meeting start: `{ type: 'calendar', value: 'meeting_start', title: '...' }`
+- Not yet implemented.
 
-**Success criteria**: User opens Netflix app (or netflix.com) → trigger fires automatically with no manual interaction.
+### M4 — Snooze, Done, Cooldown ✓ done in v1
 
-### M4 — Snooze, Done, Cooldown
-Currently triggers show and auto-dismiss. Add:
-- **Snooze**: re-surface the same memory after N minutes
-- **Done**: mark memory as acted on (hide from future triggers)
-- **Cooldown**: don't re-surface the same trigger+memory combo for N minutes
-- **Why did I see this?**: show which trigger fired and which memory matched
+**Shipped in root Jot** — `snooze-memory` IPC (sets `snoozed_until`), `dismiss-memory-done` (sets `done = 1`), `mark-memory-shown` (records `last_auto_shown_at` for 30-min cooldown), and a "Why?" button on the trigger overlay. See `database.js` and `renderer/renderer.js`.
 
-### M5 — Semantic Search and Embeddings
-- Embed intent memories with `text-embedding-3-small` on save
-- Match triggers by cosine similarity in addition to exact trigger ID
-- Fill the `embedding` column in `intent_memories` (currently reserved)
-- Enable "show me everything related to my Netflix watching" queries in the agent
+### M5 — Semantic Search and Embeddings ✓ done in v2
+
+**Shipped in `easy-jot/`** — `services/embedding.ts` calls `text-embedding-3-small` on every saved entry (async, non-blocking). `entry:search` IPC scores all entries with stored embeddings via `utils/similarity.ts:cosineSimilarity` and returns top 5. The `entries` table has an `embedding TEXT` column (JSON `number[]`).
 
 ### M6 — Behavioral Learning
 - Track dismiss/snooze/done outcomes per memory

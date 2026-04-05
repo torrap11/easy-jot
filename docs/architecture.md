@@ -252,3 +252,141 @@ agent chat HTML       // persisted across hot-reloads only
 - Parameterized SQL everywhere (better-sqlite3 prepared statements)
 - API keys never sent to renderer — `get-config-status` returns only booleans
 - config.json stored in userData (macOS file system permissions); not encrypted
+
+---
+
+## Easy Jot v2 (easy-jot/)
+
+### Runtime Model
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ MAIN PROCESS (Node.js / ESM)                                     │
+│                                                                  │
+│  main/index.ts                                                   │
+│  ├── CaptureWindow  (440×180, alwaysOnTop, backgroundColor dark) │
+│  ├── SearchWindow   (520×400, alwaysOnTop)                       │
+│  ├── OverlayWindow  (360×150, transparent, frameless, focusable:false) │
+│  ├── globalShortcut: Cmd/Ctrl+E (capture), Cmd/Ctrl+K (search)  │
+│  ├── startContextPolling()  — 2 s osascript + semantic match     │
+│  └── startReminderLoop()   — 60 s due-reminder check            │
+│                                                                  │
+│  Supporting modules (main process only):                         │
+│  db/index.ts · services/embedding.ts · services/classifier.ts   │
+│  services/contextMatcher.ts · utils/activeApp.ts                 │
+│  utils/similarity.ts                                             │
+└────────────────────────┬─────────────────────────────────────────┘
+                         │ IPC (contextIsolation: true)
+                         │ preload/index.ts — contextBridge → window.memory
+                         ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ RENDERER (Chromium + React 19, one bundle, three windows)        │
+│  renderer/src/App.tsx — hash routing: #capture / #search / #overlay │
+│  renderer/src/Capture.tsx   — textarea + save                    │
+│  renderer/src/Search.tsx    — debounced query + result list      │
+│  renderer/src/Overlay.tsx   — transparent card for context hints │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Module Responsibilities
+
+| Module | Responsibility |
+|---|---|
+| `main/index.ts` | Window lifecycle (capture/search/overlay), global shortcuts, all IPC handlers, context polling loop, reminder check loop, overlay positioning and auto-hide |
+| `preload/index.ts` | `contextBridge.exposeInMainWorld('memory', ...)` — typed API bridge for renderer |
+| `db/index.ts` | SQLite singleton (`better-sqlite3`). `initDb`, `insertEntry`, `updateEntryMeta`, `getAllEntries`, `getDueReminders`, `clearRemindAt`. Runs `migrate()` to add `remind_at` if absent |
+| `services/embedding.ts` | `generateEmbedding(text)` — POST to OpenAI `text-embedding-3-small`, returns `number[]`. Reads `OPENAI_API_KEY` from env |
+| `services/classifier.ts` | `classifyEntry(text)` → `'task' \| 'note' \| 'idea'` (keyword rules). `extractRemindAt(text)` → ISO string or null (tomorrow / next week / later) |
+| `services/contextMatcher.ts` | `activeAppToContextPhrase(app)` maps app name → phrase. `getRelevantEntries(phrase, rows, opts)` embeds phrase and scores rows by cosine similarity |
+| `utils/activeApp.ts` | `getActiveAppName()` — macOS only; osascript with 3 s timeout; returns `''` on error or non-macOS |
+| `utils/similarity.ts` | `cosineSimilarity(a, b)` — dot product normalised by L2 norms; returns 0 for zero-length vectors |
+| `renderer/src/App.tsx` | Hash-based router for the shared renderer bundle |
+| `renderer/src/Capture.tsx` | Textarea, `focus-input` IPC listener, Enter/Esc handling, `window.memory.saveEntry` |
+| `renderer/src/Search.tsx` | `<input>`, 180 ms debounce, ↑↓ selection, Enter to copy, `window.memory.search` |
+| `renderer/src/Overlay.tsx` | Transparent card, `window.memory.onOverlayShow` listener; hide handled by main (timer) |
+
+### IPC Channel Reference
+
+| Channel | Direction | Description |
+|---|---|---|
+| `entry:save` | R→M | Insert entry (sync); schedule embedding (async). Returns `{ ok, id }` or `{ ok, error }` |
+| `entry:search` | R→M | Embed query → cosine similarity over stored embeddings → top 5 results with score and created_at |
+| `window:hide-capture` | R→M | Hide capture window (ipcMain.on, not handle) |
+| `window:hide-search` | R→M | Hide search window (ipcMain.on, not handle) |
+| `clipboard:write` | R→M | Write text string to clipboard |
+| `focus-input` | M→R | Main → renderer: focus the textarea / input on window show |
+| `overlay:show` | M→R | Main → overlay renderer: set text and display card |
+
+### Data Model
+
+```sql
+CREATE TABLE entries (
+  id         TEXT PRIMARY KEY,       -- UUID
+  content    TEXT,
+  created_at DATETIME,
+  updated_at DATETIME,
+  type       TEXT,                   -- 'task' | 'note' | 'idea'
+  embedding  TEXT,                   -- JSON number[] (null until async job completes)
+  remind_at  DATETIME                -- added by migrate(); null or ISO timestamp
+);
+```
+
+`remind_at` is added via an `ALTER TABLE` migration on first run if the column doesn't exist. Entries with `remind_at <= now` are fetched by `getDueReminders` and shown via overlay, then `clearRemindAt` nulls the column.
+
+### Save Flow
+
+```
+1. User presses Enter in Capture
+2. renderer → entry:save IPC (content string)
+3. main: classifyEntry(content) → type; extractRemindAt(content) → remindAt
+4. insertEntry(id, content, type, now, remindAt)   ← synchronous SQLite write
+5. scheduleEmbedding(id, content)                  ← fires-and-forgets async
+   └── generateEmbedding(content) → OpenAI API
+   └── updateEntryMeta(id, type, embeddingJson, updatedAt)
+6. Returns { ok: true, id } to renderer
+7. Renderer clears textarea and hides window
+```
+
+### Search Flow
+
+```
+1. User types query (debounced 180 ms in Search.tsx)
+2. renderer → entry:search IPC (query string)
+3. main: generateEmbedding(query) → OpenAI API
+4. getAllEntries() filtered to rows where embedding IS NOT NULL
+5. JSON.parse(r.embedding) for each row → cosineSimilarity(queryEmb, entryEmb)
+6. Sort descending; slice top 5
+7. Returns { ok: true, results: [{id, content, type, score, created_at}, ...] }
+```
+
+### Context Polling Flow (macOS only)
+
+```
+setInterval(2 s):
+  getActiveAppName() → osascript
+  if appName === lastPolledApp: skip
+  else: lastPolledApp = appName
+    activeAppToContextPhrase(appName) → phrase or null
+    if phrase:
+      getRelevantEntries(phrase, getAllEntries(), { minScore: 0.68, maxAgeHours: 72, limit: 2 })
+      if top match found and canSurface(top.id):  ← 5-min debounce per entry
+        showOverlay(`👉 You wanted to: ${top.content}`)
+```
+
+### Key Constants
+
+| Constant | Value | Purpose |
+|---|---|---|
+| `CONTEXT_POLL_MS` | 2 000 ms | Frontmost app polling interval |
+| `CONTEXT_MIN_SCORE` | 0.68 | Cosine similarity threshold for context surface |
+| `CONTEXT_MAX_AGE_HOURS` | 72 h | Max age of entries eligible for context surfacing |
+| `SURFACE_DEBOUNCE_MS` | 300 000 ms (5 min) | Min time before same entry is surfaced again |
+| `OVERLAY_DISMISS_MS` | 6 000 ms | Auto-hide duration for overlay window |
+| `REMINDER_TICK_MS` | 60 000 ms | Due-reminder check interval |
+
+### Security Notes (v2)
+
+- Same `contextIsolation: true`, `nodeIntegration: false` model as v1
+- `OPENAI_API_KEY` read from `process.env` in main process only; never reaches renderer
+- Overlay window is `focusable: false` so it never steals keyboard focus
+- `better-sqlite3` uses prepared statements; no string concatenation in queries
